@@ -8,12 +8,11 @@ type OrderRow = {
   name: string;
   createdAt: string;
   displayFulfillmentStatus: string;
-  customer: string;
   total: string;
   currency: string;
 };
 
-const PCD_ERROR_PATTERN = /not approved to access the order object|protected customer data|read_orders/i;
+const PCD_ERROR_PATTERN = /not approved to access the order object|protected customer data|read_orders|access denied/i;
 
 function errToString(err: unknown): string {
   if (typeof err === "string") return err;
@@ -45,7 +44,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
                 name
                 createdAt
                 displayFulfillmentStatus
-                customer { displayName }
                 totalPriceSet { shopMoney { amount currencyCode } }
               }
             }
@@ -69,7 +67,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       name: e.node.name,
       createdAt: e.node.createdAt,
       displayFulfillmentStatus: e.node.displayFulfillmentStatus,
-      customer: e.node.customer?.displayName ?? "—",
       total: e.node.totalPriceSet?.shopMoney?.amount ?? "0",
       currency: e.node.totalPriceSet?.shopMoney?.currencyCode ?? "",
     }));
@@ -162,7 +159,6 @@ export default function Index() {
             <s-table-header-row>
               <s-table-header>Order</s-table-header>
               <s-table-header>Date</s-table-header>
-              <s-table-header>Customer</s-table-header>
               <s-table-header format="numeric">Total</s-table-header>
               <s-table-header>Fulfilment</s-table-header>
             </s-table-header-row>
@@ -173,7 +169,6 @@ export default function Index() {
                     <s-text>{order.name}</s-text>
                   </s-table-cell>
                   <s-table-cell>{fmtDate(order.createdAt)}</s-table-cell>
-                  <s-table-cell>{order.customer}</s-table-cell>
                   <s-table-cell>
                     {fmtMoney(parseFloat(order.total), order.currency)}
                   </s-table-cell>
