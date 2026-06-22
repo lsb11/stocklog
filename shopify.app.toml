@@ -2,7 +2,7 @@
 
 client_id = "665831b9d8e3c1e449928a3a7021eeee"
 name = "Stocklog"
-application_url = "https://example.com"
+application_url = "https://stocklog.onrender.com"
 embedded = true
 
 [access_scopes]
@@ -49,7 +49,11 @@ api_version = "2026-07"
   topics = [ "orders/create" ]
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+redirect_urls = [
+  "https://stocklog.onrender.com/api/auth",
+  "https://stocklog.onrender.com/auth/callback",
+  "https://stocklog.onrender.com/auth/shopify/callback",
+]
 
 [build]
-automatically_update_urls_on_dev = true
+automatically_update_urls_on_dev = false
