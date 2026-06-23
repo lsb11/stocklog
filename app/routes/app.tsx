@@ -9,12 +9,21 @@ import { MONTHLY_PLAN } from "../shopify.server";
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { billing } = await authenticate.admin(request);
 
-  await billing.require({
-    plans: [MONTHLY_PLAN],
-    isTest: true,
-    onFailure: async () =>
-      billing.request({ plan: MONTHLY_PLAN, isTest: true }),
-  });
+  try {
+    await billing.require({
+      plans: [MONTHLY_PLAN],
+      isTest: true,
+      onFailure: async () =>
+        billing.request({ plan: MONTHLY_PLAN, isTest: true }),
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("public distribution") || msg.includes("billing")) {
+      console.log("[StockLog] billing not active yet:", msg);
+    } else {
+      throw err;
+    }
+  }
 
   // eslint-disable-next-line no-undef
   return { apiKey: process.env.SHOPIFY_API_KEY || "" };
