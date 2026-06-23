@@ -1,6 +1,6 @@
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "react-router";
-import { useActionData, useLoaderData, useFetcher } from "react-router";
-import { useEffect, useRef } from "react";
+import { useLoaderData, useFetcher } from "react-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
@@ -76,14 +76,26 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   return { success: true, error: null };
 };
 
+type PickedVariant = { variantId: string; sku: string; productTitle: string };
+
 export default function Inventory() {
   const { stock } = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
   const formRef = useRef<HTMLFormElement>(null);
+  const [pickedVariant, setPickedVariant] = useState<PickedVariant | null>(null);
+
+  const openPicker = useCallback(async () => {
+    const selection = await shopify.resourcePicker({ type: "variant", multiple: false });
+    if (selection && selection.length > 0) {
+      const v = selection[0];
+      setPickedVariant({ variantId: v.id, sku: v.sku ?? "", productTitle: v.product.title });
+    }
+  }, []);
 
   useEffect(() => {
     if (fetcher.data?.success) {
       formRef.current?.reset();
+      setPickedVariant(null);
     }
   }, [fetcher.data]);
 
@@ -151,24 +163,23 @@ export default function Inventory() {
         )}
 
         <fetcher.Form ref={formRef} method="post">
+          <input type="hidden" name="variantId" value={pickedVariant?.variantId ?? ""} />
+          <input type="hidden" name="sku" value={pickedVariant?.sku ?? ""} />
+          <input type="hidden" name="productTitle" value={pickedVariant?.productTitle ?? ""} />
           <s-stack direction="block" gap="base">
-            <s-text-field
-              label="Product title"
-              name="productTitle"
-              placeholder="e.g. Classic T-Shirt"
-              required
-            />
-            <s-text-field
-              label="Variant ID"
-              name="variantId"
-              placeholder="e.g. gid://shopify/ProductVariant/123456"
-              required
-            />
-            <s-text-field
-              label="SKU (optional)"
-              name="sku"
-              placeholder="e.g. TSHIRT-BLK-M"
-            />
+            {pickedVariant ? (
+              <s-stack direction="block" gap="small">
+                <s-text>{pickedVariant.productTitle}</s-text>
+                <s-paragraph color="subdued">
+                  {pickedVariant.sku ? `SKU: ${pickedVariant.sku}` : "No SKU"}
+                  {" · "}
+                  {pickedVariant.variantId}
+                </s-paragraph>
+                <s-button onClick={openPicker}>Change product</s-button>
+              </s-stack>
+            ) : (
+              <s-button onClick={openPicker}>Select product / variant</s-button>
+            )}
             <s-number-field
               label="Quantity delta"
               name="quantityDelta"

@@ -21,9 +21,10 @@ export default function App() {
   return (
     <div className={styles.index}>
       <div className={styles.content}>
-        <h1 className={styles.heading}>A short heading about [your app]</h1>
+        <h1 className={styles.heading}>StockLog — Inventory &amp; Order Tracking</h1>
         <p className={styles.text}>
-          A tagline about [your app] that describes your value proposition.
+          A persistent stock ledger and live order dashboard for your Shopify
+          store — the simple way to track inventory as orders come in.
         </p>
         {showForm && (
           <Form className={styles.form} method="post" action="/auth/login">
@@ -39,16 +40,18 @@ export default function App() {
         )}
         <ul className={styles.list}>
           <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
+            <strong>Live order dashboard</strong>. See every incoming order at a
+            glance — status, revenue, and fulfilment state updated in real time.
           </li>
           <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
+            <strong>Automatic stock ledger</strong>. Every order automatically
+            decrements your on-hand quantity, so your inventory stays accurate
+            without manual counting.
           </li>
           <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
+            <strong>Manual stock adjustments</strong>. Record restocks, write-offs,
+            or corrections in seconds using the built-in adjustment form with
+            full audit history.
           </li>
         </ul>
       </div>
