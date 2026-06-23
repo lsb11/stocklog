@@ -88,7 +88,11 @@ export default function Inventory() {
     const selection = await shopify.resourcePicker({ type: "variant", multiple: false });
     if (selection && selection.length > 0) {
       const v = selection[0];
-      setPickedVariant({ variantId: v.id, sku: v.sku ?? "", productTitle: v.product.title });
+      // v.product?.title is the canonical source; displayName falls back as "Product - Variant"
+      const productTitle =
+        v.product?.title ??
+        (v.displayName ?? v.title ?? "").replace(/\s[-–]\s.+$/, "");
+      setPickedVariant({ variantId: v.id, sku: v.sku ?? "", productTitle });
     }
   }, []);
 
