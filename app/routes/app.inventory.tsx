@@ -10,16 +10,23 @@ type StockRow = {
   sku: string;
   productTitle: string;
   onHand: number;
+  reorderPoint: number | null;
 };
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
 
-  const movements = await prisma.stockMovement.findMany({
-    where: { shop },
-    select: { variantId: true, sku: true, productTitle: true, quantityDelta: true },
-  });
+  const [movements, settings] = await Promise.all([
+    prisma.stockMovement.findMany({
+      where: { shop },
+      select: { variantId: true, sku: true, productTitle: true, quantityDelta: true },
+    }),
+    prisma.variantSettings.findMany({
+      where: { shop },
+      select: { variantId: true, reorderPoint: true },
+    }),
+  ]);
 
   const grouped = new Map<string, StockRow>();
   for (const m of movements) {
@@ -32,9 +39,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         sku: m.sku ?? "",
         productTitle: m.productTitle,
         onHand: m.quantityDelta,
+        reorderPoint: null,
       });
     }
   }
+
+  const settingsMap = new Map(settings.map((s) => [s.variantId, s.reorderPoint ?? null]));
+  for (const row of grouped.values()) {
+    row.reorderPoint = settingsMap.get(row.variantId) ?? null;
+  }
+
   const stock = Array.from(grouped.values()).sort((a, b) =>
     a.productTitle.localeCompare(b.productTitle),
   );
@@ -42,11 +56,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   return { stock };
 };
 
-export const action = async ({ request }: ActionFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
-  const shop = session.shop;
-
-  const fd = await request.formData();
+async function actionAdjustStock(shop: string, fd: FormData) {
   const productTitle = String(fd.get("productTitle") ?? "").trim();
   const variantId = String(fd.get("variantId") ?? "").trim();
   const sku = String(fd.get("sku") ?? "").trim();
@@ -74,7 +84,70 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   });
 
   return { success: true, error: null };
+}
+
+async function actionSetReorderPoint(shop: string, fd: FormData) {
+  const variantId = String(fd.get("variantId") ?? "").trim();
+  const rpRaw = fd.get("reorderPoint");
+  const reorderPoint =
+    rpRaw === "" || rpRaw === null ? null : parseInt(String(rpRaw), 10);
+
+  if (!variantId) {
+    return { error: "Variant ID is required.", success: false };
+  }
+  if (reorderPoint !== null && isNaN(reorderPoint)) {
+    return { error: "Reorder point must be a valid number.", success: false };
+  }
+
+  await prisma.variantSettings.upsert({
+    where: { shop_variantId: { shop, variantId } },
+    update: { reorderPoint },
+    create: { shop, variantId, reorderPoint },
+  });
+
+  return { success: true, error: null };
+}
+
+export const action = async ({ request }: ActionFunctionArgs) => {
+  const { session } = await authenticate.admin(request);
+  const shop = session.shop;
+  const fd = await request.formData();
+  const intent = String(fd.get("intent") ?? "adjust");
+
+  if (intent === "set-reorder-point") {
+    return actionSetReorderPoint(shop, fd);
+  }
+  return actionAdjustStock(shop, fd);
 };
+
+function ReorderCell({ row }: { row: StockRow }) {
+  const fetcher = useFetcher();
+  const saving = fetcher.state !== "idle";
+  return (
+    <fetcher.Form method="post">
+      <input type="hidden" name="intent" value="set-reorder-point" />
+      <input type="hidden" name="variantId" value={row.variantId} />
+      <s-stack direction="inline" gap="small">
+        <input
+          type="number"
+          name="reorderPoint"
+          defaultValue={row.reorderPoint ?? ""}
+          placeholder="—"
+          style={{ width: "72px" }}
+          min="0"
+          step="1"
+        />
+        <s-button
+          type="submit"
+          variant="primary"
+          {...{ loading: saving ? true : undefined }}
+        >
+          Save
+        </s-button>
+      </s-stack>
+    </fetcher.Form>
+  );
+}
 
 type PickedVariant = { variantId: string; sku: string; productTitle: string };
 
@@ -119,36 +192,51 @@ export default function Inventory() {
               <s-table-header>SKU</s-table-header>
               <s-table-header>Variant ID</s-table-header>
               <s-table-header format="numeric">On hand</s-table-header>
+              <s-table-header>Reorder point</s-table-header>
             </s-table-header-row>
             <s-table-body>
-              {stock.map((row) => (
-                <s-table-row key={row.variantId}>
-                  <s-table-cell>{row.productTitle}</s-table-cell>
-                  <s-table-cell>
-                    {row.sku ? (
-                      <s-text>{row.sku}</s-text>
-                    ) : (
-                      <s-paragraph color="subdued">—</s-paragraph>
-                    )}
-                  </s-table-cell>
-                  <s-table-cell>
-                    <s-paragraph color="subdued">{row.variantId}</s-paragraph>
-                  </s-table-cell>
-                  <s-table-cell>
-                    <s-badge
-                      tone={
-                        row.onHand > 10
-                          ? "success"
-                          : row.onHand > 0
-                            ? "warning"
-                            : "critical"
-                      }
-                    >
-                      {row.onHand}
-                    </s-badge>
-                  </s-table-cell>
-                </s-table-row>
-              ))}
+              {stock.map((row) => {
+                const isLow =
+                  row.reorderPoint !== null && row.onHand <= row.reorderPoint;
+                return (
+                  <s-table-row key={row.variantId}>
+                    <s-table-cell>
+                      <s-stack direction="inline" gap="small">
+                        <span>{row.productTitle}</span>
+                        {isLow && (
+                          <s-badge tone="warning">Low stock</s-badge>
+                        )}
+                      </s-stack>
+                    </s-table-cell>
+                    <s-table-cell>
+                      {row.sku ? (
+                        <s-text>{row.sku}</s-text>
+                      ) : (
+                        <s-paragraph color="subdued">—</s-paragraph>
+                      )}
+                    </s-table-cell>
+                    <s-table-cell>
+                      <s-paragraph color="subdued">{row.variantId}</s-paragraph>
+                    </s-table-cell>
+                    <s-table-cell>
+                      <s-badge
+                        tone={
+                          row.onHand > 10
+                            ? "success"
+                            : row.onHand > 0
+                              ? "warning"
+                              : "critical"
+                        }
+                      >
+                        {row.onHand}
+                      </s-badge>
+                    </s-table-cell>
+                    <s-table-cell>
+                      <ReorderCell key={row.variantId + "-" + row.reorderPoint} row={row} />
+                    </s-table-cell>
+                  </s-table-row>
+                );
+              })}
             </s-table-body>
           </s-table>
         )}
@@ -167,6 +255,7 @@ export default function Inventory() {
         )}
 
         <fetcher.Form ref={formRef} method="post">
+          <input type="hidden" name="intent" value="adjust" />
           <input type="hidden" name="variantId" value={pickedVariant?.variantId ?? ""} />
           <input type="hidden" name="sku" value={pickedVariant?.sku ?? ""} />
           <input type="hidden" name="productTitle" value={pickedVariant?.productTitle ?? ""} />

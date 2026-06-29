@@ -29,6 +29,16 @@ model StockMovement {
   @@index([shop, createdAt])
 }
 
+model VariantSettings {
+  id           String @id @default(cuid())
+  shop         String
+  variantId    String
+  reorderPoint Int?
+
+  @@unique([shop, variantId])
+  @@index([shop])
+}
+
 model Session {
   id            String    @id
   shop          String
