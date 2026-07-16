@@ -40,18 +40,29 @@ export default function App() {
         )}
         <ul className={styles.list}>
           <li>
+            <strong>Import your Stocky data before 31 August 2026</strong>.
+            Shopify permanently deletes all Stocky data at the end of August.
+            StockLog syncs your current Shopify stock in one click and imports
+            your Stocky CSV export, so nothing is lost.
+          </li>
+          <li>
             <strong>Live order dashboard</strong>. See every incoming order at a
             glance — status, revenue, and fulfilment state updated in real time.
           </li>
           <li>
-            <strong>Automatic stock ledger</strong>. Every order automatically
-            decrements your on-hand quantity, so your inventory stays accurate
-            without manual counting.
+            <strong>Automatic stock ledger</strong>. Every order decrements your
+            on-hand quantity; cancellations and restocking refunds are put back
+            automatically. No manual counting, no double-counting.
           </li>
           <li>
-            <strong>Manual stock adjustments</strong>. Record restocks, write-offs,
-            or corrections in seconds using the built-in adjustment form with
-            full audit history.
+            <strong>Full audit history</strong>. Every movement — orders,
+            cancellations, refunds, restocks, imports, corrections — is recorded
+            with a timestamp and reason, and low-stock items are flagged against
+            your reorder points.
+          </li>
+          <li>
+            <strong>Simple pricing</strong>. $7.99/month after a 7-day free
+            trial. Cancel any time from your Shopify admin.
           </li>
         </ul>
       </div>

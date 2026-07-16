@@ -5,6 +5,16 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 
+type MovementRow = {
+  id: string;
+  productTitle: string;
+  sku: string;
+  quantityDelta: number;
+  reason: string;
+  orderId: string | null;
+  createdAt: string;
+};
+
 type StockRow = {
   variantId: string;
   sku: string;
@@ -17,7 +27,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
 
-  const [movements, settings] = await Promise.all([
+  const [movements, settings, recentRaw] = await Promise.all([
     prisma.stockMovement.findMany({
       where: { shop },
       select: { variantId: true, sku: true, productTitle: true, quantityDelta: true },
@@ -26,7 +36,31 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       where: { shop },
       select: { variantId: true, reorderPoint: true },
     }),
+    prisma.stockMovement.findMany({
+      where: { shop },
+      orderBy: { createdAt: "desc" },
+      take: 25,
+      select: {
+        id: true,
+        productTitle: true,
+        sku: true,
+        quantityDelta: true,
+        reason: true,
+        orderId: true,
+        createdAt: true,
+      },
+    }),
   ]);
+
+  const recent: MovementRow[] = recentRaw.map((m: (typeof recentRaw)[number]) => ({
+    id: m.id,
+    productTitle: m.productTitle,
+    sku: m.sku ?? "",
+    quantityDelta: m.quantityDelta,
+    reason: m.reason,
+    orderId: m.orderId,
+    createdAt: m.createdAt.toISOString(),
+  }));
 
   const grouped = new Map<string, StockRow>();
   for (const m of movements) {
@@ -44,7 +78,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     }
   }
 
-  const settingsMap = new Map(settings.map((s) => [s.variantId, s.reorderPoint ?? null]));
+  const settingsMap = new Map<string, number | null>(
+    settings.map((s: { variantId: string; reorderPoint: number | null }) => [
+      s.variantId,
+      s.reorderPoint ?? null,
+    ]),
+  );
   for (const row of grouped.values()) {
     row.reorderPoint = settingsMap.get(row.variantId) ?? null;
   }
@@ -53,7 +92,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     a.productTitle.localeCompare(b.productTitle),
   );
 
-  return { stock };
+  return { stock, recent };
 };
 
 async function actionAdjustStock(shop: string, fd: FormData) {
@@ -152,7 +191,7 @@ function ReorderCell({ row }: { row: StockRow }) {
 type PickedVariant = { variantId: string; sku: string; productTitle: string };
 
 export default function Inventory() {
-  const { stock } = useLoaderData<typeof loader>();
+  const { stock, recent } = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
   const formRef = useRef<HTMLFormElement>(null);
   const [pickedVariant, setPickedVariant] = useState<PickedVariant | null>(null);
@@ -161,10 +200,12 @@ export default function Inventory() {
     const selection = await shopify.resourcePicker({ type: "variant", multiple: false });
     if (selection && selection.length > 0) {
       const v = selection[0];
-      // v.product?.title is the canonical source; displayName falls back as "Product - Variant"
+      // v.product?.title is the canonical source; displayName/title fall back
+      // as "Product - Variant" (not in the published picker types).
+      const fallback = v as { displayName?: string; title?: string };
       const productTitle =
         v.product?.title ??
-        (v.displayName ?? v.title ?? "").replace(/\s[-–]\s.+$/, "");
+        (fallback.displayName ?? fallback.title ?? "").replace(/\s[-–]\s.+$/, "");
       setPickedVariant({ variantId: v.id, sku: v.sku ?? "", productTitle });
     }
   }, []);
@@ -237,6 +278,62 @@ export default function Inventory() {
                   </s-table-row>
                 );
               })}
+            </s-table-body>
+          </s-table>
+        )}
+      </s-section>
+
+      <s-section heading="Movement history (last 25)">
+        {recent.length === 0 ? (
+          <s-paragraph color="subdued">
+            No movements yet. Orders, adjustments, imports, and syncs will
+            appear here with a full audit trail.
+          </s-paragraph>
+        ) : (
+          <s-table>
+            <s-table-header-row>
+              <s-table-header>When</s-table-header>
+              <s-table-header>Product</s-table-header>
+              <s-table-header>SKU</s-table-header>
+              <s-table-header format="numeric">Change</s-table-header>
+              <s-table-header>Reason</s-table-header>
+            </s-table-header-row>
+            <s-table-body>
+              {recent.map((m) => (
+                <s-table-row key={m.id}>
+                  <s-table-cell>
+                    <s-paragraph color="subdued">
+                      {new Date(m.createdAt).toLocaleString()}
+                    </s-paragraph>
+                  </s-table-cell>
+                  <s-table-cell>{m.productTitle}</s-table-cell>
+                  <s-table-cell>
+                    {m.sku ? (
+                      <s-text>{m.sku}</s-text>
+                    ) : (
+                      <s-paragraph color="subdued">—</s-paragraph>
+                    )}
+                  </s-table-cell>
+                  <s-table-cell>
+                    <s-badge tone={m.quantityDelta >= 0 ? "success" : "warning"}>
+                      {m.quantityDelta > 0 ? `+${m.quantityDelta}` : m.quantityDelta}
+                    </s-badge>
+                  </s-table-cell>
+                  <s-table-cell>
+                    <s-badge
+                      tone={
+                        m.reason === "order"
+                          ? "info"
+                          : m.reason === "order_cancelled" || m.reason === "refund_restock"
+                            ? "warning"
+                            : "neutral"
+                      }
+                    >
+                      {m.reason.replace(/_/g, " ")}
+                    </s-badge>
+                  </s-table-cell>
+                </s-table-row>
+              ))}
             </s-table-body>
           </s-table>
         )}

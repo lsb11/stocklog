@@ -22,10 +22,22 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const order = payload as OrderPayload;
   const orderId = `gid://shopify/Order/${order.id}`;
 
+  // Idempotency: Shopify retries webhooks on timeouts/5xx. Without this
+  // guard a retried delivery would decrement stock twice.
+  const existing = await db.stockMovement.findFirst({
+    where: { shop, orderId, reason: "order" },
+    select: { id: true },
+  });
+  if (existing) {
+    console.log(`Order ${orderId} already recorded for ${shop} — skipping duplicate delivery`);
+    return new Response();
+  }
+
   const movements = order.line_items
     .filter((item) => item.variant_id != null && item.quantity > 0)
     .map((item) => ({
       shop,
+      productId: item.product_id != null ? `gid://shopify/Product/${item.product_id}` : null,
       variantId: `gid://shopify/ProductVariant/${item.variant_id}`,
       sku: item.sku || null,
       productTitle: item.title,

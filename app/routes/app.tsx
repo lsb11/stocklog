@@ -10,11 +10,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { billing } = await authenticate.admin(request);
 
   try {
+    // Real charges only in production with BILLING_TEST unset/false.
+    // Keep BILLING_TEST=true until the app passes review, then remove it.
+    const isTest =
+      process.env.BILLING_TEST === "true" ||
+      process.env.NODE_ENV !== "production";
     await billing.require({
       plans: [MONTHLY_PLAN],
-      isTest: true,
+      isTest,
       onFailure: async () =>
-        billing.request({ plan: MONTHLY_PLAN, isTest: true }),
+        billing.request({ plan: MONTHLY_PLAN, isTest }),
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -37,7 +42,7 @@ export default function App() {
       <s-app-nav>
         <s-link href="/app">Home</s-link>
         <s-link href="/app/inventory">Inventory</s-link>
-        <s-link href="/app/additional">Additional page</s-link>
+        <s-link href="/app/import">Import / Sync</s-link>
       </s-app-nav>
       <Outlet />
     </AppProvider>
