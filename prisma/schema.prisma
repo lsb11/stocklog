@@ -23,10 +23,15 @@ model StockMovement {
   quantityDelta Int
   reason        String
   orderId       String?
+  // For refund_restock rows, orderId holds the Refund GID (refunds are their own
+  // resource). sourceOrderId records the parent Order GID so the cancellation
+  // handler can see what a refund already restocked and avoid double-reversing.
+  sourceOrderId String?
   createdAt     DateTime @default(now())
 
   @@index([shop, variantId])
   @@index([shop, createdAt])
+  @@index([shop, sourceOrderId])
 }
 
 model VariantSettings {

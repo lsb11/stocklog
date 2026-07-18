@@ -29,19 +29,51 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   });
   if (originals.length === 0) return new Response();
 
+  // Shopify fires refunds/create AND orders/cancelled when a paid order is
+  // cancelled with restock. Those refund rows have already returned some (or
+  // all) of the stock, so reverse only what remains — otherwise the ledger
+  // gains phantom units. Netting per variant also handles partial refunds.
+  const priorRestocks = await db.stockMovement.findMany({
+    where: { shop, sourceOrderId: orderId, reason: "refund_restock" },
+    select: { variantId: true, quantityDelta: true },
+  });
+  const alreadyRestocked = new Map<string, number>();
+  for (const r of priorRestocks) {
+    alreadyRestocked.set(
+      r.variantId,
+      (alreadyRestocked.get(r.variantId) ?? 0) + r.quantityDelta,
+    );
+  }
+
   type Movement = (typeof originals)[number];
-  await db.stockMovement.createMany({
-    data: originals.map((m: Movement) => ({
+  const rows = originals
+    .map((m: Movement): { m: Movement; remaining: number } => {
+      const owed = -m.quantityDelta; // positive: units to put back
+      const credited = alreadyRestocked.get(m.variantId) ?? 0;
+      const remaining = owed - credited;
+      // Consume the credit so multiple lines on one variant don't reuse it.
+      alreadyRestocked.set(m.variantId, Math.max(0, credited - owed));
+      return { m, remaining };
+    })
+    .filter(({ remaining }: { m: Movement; remaining: number }) => remaining > 0)
+    .map(({ m, remaining }: { m: Movement; remaining: number }) => ({
       shop,
       productId: m.productId,
       variantId: m.variantId,
       sku: m.sku,
       productTitle: m.productTitle,
-      quantityDelta: -m.quantityDelta, // exact reversal
+      quantityDelta: remaining,
       reason: "order_cancelled",
       orderId,
-    })),
-  });
-  console.log(`Reversed ${originals.length} movement(s) for cancelled order ${orderId}`);
+      sourceOrderId: orderId,
+    }));
+
+  if (rows.length === 0) {
+    console.log(`Cancelled order ${orderId} already fully restocked by refund(s); no reversal needed`);
+    return new Response();
+  }
+
+  await db.stockMovement.createMany({ data: rows });
+  console.log(`Reversed ${rows.length} movement(s) for cancelled order ${orderId}`);
   return new Response();
 };

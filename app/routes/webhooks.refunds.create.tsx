@@ -30,6 +30,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   const refund = payload as RefundPayload;
   const refundRef = `gid://shopify/Refund/${refund.id}`;
+  const sourceOrderId = `gid://shopify/Order/${refund.order_id}`;
 
   // Idempotency guard keyed on the refund's own GID.
   const existing = await db.stockMovement.findFirst({
@@ -57,11 +58,41 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       quantityDelta: r.quantity,
       reason: "refund_restock",
       orderId: refundRef,
+      sourceOrderId,
     }));
 
-  if (movements.length > 0) {
-    await db.stockMovement.createMany({ data: movements });
-    console.log(`Restocked ${movements.length} line(s) for refund ${refundRef}`);
+  // The cancellation webhook may have landed first (Shopify fires both for a
+  // cancel-with-restock, and delivery order is not guaranteed). If it already
+  // put these units back, don't restock them a second time.
+  const priorCancelRestocks = await db.stockMovement.findMany({
+    where: { shop, sourceOrderId, reason: "order_cancelled" },
+    select: { variantId: true, quantityDelta: true },
+  });
+  const alreadyRestocked = new Map<string, number>();
+  for (const r of priorCancelRestocks) {
+    alreadyRestocked.set(
+      r.variantId,
+      (alreadyRestocked.get(r.variantId) ?? 0) + r.quantityDelta,
+    );
+  }
+
+  const netted = movements
+    .map((m) => {
+      const credited = alreadyRestocked.get(m.variantId) ?? 0;
+      const remaining = m.quantityDelta - credited;
+      alreadyRestocked.set(
+        m.variantId,
+        Math.max(0, credited - m.quantityDelta),
+      );
+      return { ...m, quantityDelta: remaining };
+    })
+    .filter((m) => m.quantityDelta > 0);
+
+  if (netted.length > 0) {
+    await db.stockMovement.createMany({ data: netted });
+    console.log(`Restocked ${netted.length} line(s) for refund ${refundRef}`);
+  } else if (movements.length > 0) {
+    console.log(`Refund ${refundRef} already restocked by cancellation; no movement written`);
   }
   return new Response();
 };
