@@ -32,10 +32,18 @@ api_version = "2026-07"
   uri = "/webhooks/refunds/create"
   topics = [ "refunds/create" ]
 
-  [webhooks.privacy_compliance]
-  customer_deletion_url = "/webhooks/customers/redact"
-  customer_data_request_url = "/webhooks/customers/data_request"
-  shop_deletion_url = "/webhooks/shop/redact"
+  # Mandatory compliance topics for public apps.
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/customers/data_request"
+  compliance_topics = [ "customers/data_request" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/customers/redact"
+  compliance_topics = [ "customers/redact" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/shop/redact"
+  compliance_topics = [ "shop/redact" ]
 
 [auth]
 redirect_urls = [
