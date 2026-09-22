@@ -4,14 +4,12 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 
 import { authenticate, MONTHLY_PLAN } from "../shopify.server";
+import { resolveIsTestBilling } from "../billing.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { billing } = await authenticate.admin(request);
+  const { admin, billing, session } = await authenticate.admin(request);
 
-  // Real charges in production. Set BILLING_TEST=true only to exercise the
-  // billing flow against a dev store without creating a live charge.
-  const isTest =
-    process.env.BILLING_TEST === "true" || process.env.NODE_ENV !== "production";
+  const isTest = await resolveIsTestBilling(session.shop, admin);
 
   await billing.require({
     plans: [MONTHLY_PLAN],

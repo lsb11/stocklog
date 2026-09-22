@@ -3,6 +3,21 @@ import { useLoaderData } from "react-router";
 import { authenticate } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 
+type OrderNode = {
+  id: string;
+  name: string;
+  createdAt: string;
+  displayFulfillmentStatus: string;
+  totalPriceSet?: {
+    shopMoney?: { amount?: string; currencyCode?: string } | null;
+  } | null;
+};
+
+type RecentOrdersResponse = {
+  data?: { orders?: { edges?: { node: OrderNode }[] } | null } | null;
+  errors?: unknown[];
+};
+
 type OrderRow = {
   id: string;
   name: string;
@@ -17,7 +32,7 @@ const PCD_ERROR_PATTERN = /not approved to access the order object|protected cus
 function errToString(err: unknown): string {
   if (typeof err === "string") return err;
   if (err instanceof Error) {
-    const body = (err as any).body;
+    const body = (err as Error & { body?: unknown }).body;
     return [err.message, body ? JSON.stringify(body) : ""].join(" ");
   }
   return JSON.stringify(err) ?? "";
@@ -51,10 +66,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         }`,
     );
 
-    const body = await response.json();
+    const body = (await response.json()) as RecentOrdersResponse;
 
-    if ((body as any)?.errors?.length) {
-      const errs = (body as any).errors;
+    if (body?.errors?.length) {
+      const errs = body.errors;
       console.error("[StockLog] GraphQL errors:", JSON.stringify(errs, null, 2));
       if (isPcdError(errs)) return accessPendingResult;
       return noOrders;
@@ -62,7 +77,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
     const edges = body?.data?.orders?.edges ?? [];
 
-    const orders: OrderRow[] = edges.map((e: any) => ({
+    const orders: OrderRow[] = edges.map((e: { node: OrderNode }) => ({
       id: e.node.id,
       name: e.node.name,
       createdAt: e.node.createdAt,

@@ -7,11 +7,18 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   console.log(`Received ${topic} webhook for ${shop}`);
 
-  // Webhook requests can trigger multiple times and after an app has already been uninstalled.
-  // If this webhook already ran, the session may have been deleted previously.
-  if (session) {
-    await db.session.deleteMany({ where: { shop } });
-  }
+  try {
+    // Webhook requests can trigger multiple times and after an app has already been uninstalled.
+    // If this webhook already ran, the session may have been deleted previously.
+    if (session) {
+      await db.session.deleteMany({ where: { shop } });
+    }
 
-  return new Response();
+    return new Response();
+  } catch (err) {
+    // Rethrow so the request 500s and Shopify retries; deleting sessions is
+    // idempotent, so a replay is safe.
+    console.error(`[StockLog] ${topic} failed for shop ${shop}:`, err);
+    throw err;
+  }
 };

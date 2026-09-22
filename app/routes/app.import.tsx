@@ -71,6 +71,15 @@ type VariantNode = {
   product: { title: string };
 };
 
+type VariantsResponse = {
+  data?: {
+    productVariants?: {
+      edges: { cursor: string; node: VariantNode }[];
+      pageInfo?: { hasNextPage?: boolean };
+    } | null;
+  } | null;
+};
+
 async function fetchAllVariants(
   admin: Awaited<ReturnType<typeof authenticate.admin>>["admin"],
 ): Promise<VariantNode[]> {
@@ -96,7 +105,7 @@ async function fetchAllVariants(
         }`,
       { variables: { cursor } },
     );
-    const body = (await response.json()) as any;
+    const body = (await response.json()) as VariantsResponse;
     const conn = body?.data?.productVariants;
     if (!conn) break;
     for (const edge of conn.edges) {

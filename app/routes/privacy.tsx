@@ -103,23 +103,23 @@ export default function Privacy() {
         <ul style={s.ul}>
           <li>
             <strong>Uninstalling the app</strong> revokes its access
-            immediately, and Shopify's shop-redact process removes the shop's
-            stored data within the timeframe Shopify mandates (currently 48
-            hours after the redaction request is issued).
+            immediately, and Shopify&rsquo;s shop-redact process removes the
+            shop&rsquo;s stored data within the timeframe Shopify mandates
+            (currently 48 hours after the redaction request is issued).
           </li>
           <li>
-            StockLog implements all of Shopify's mandatory privacy webhooks
-            (customer data requests, customer redaction, and shop redaction).
-            Because no customer personal information is stored, customer data
-            requests return nothing to disclose.
+            StockLog implements all of Shopify&rsquo;s mandatory privacy
+            webhooks (customer data requests, customer redaction, and shop
+            redaction). Because no customer personal information is stored,
+            customer data requests return nothing to disclose.
           </li>
         </ul>
 
         <h2 style={s.h2}>Contact</h2>
         <p style={s.p}>
           Questions about this policy or your data: contact us through the
-          support details on StockLog's Shopify App Store listing, and we'll
-          respond within a few business days.
+          support details on StockLog&rsquo;s Shopify App Store listing, and
+          we&rsquo;ll respond within a few business days.
         </p>
       </main>
       <footer style={s.footer}>© 2026 StockLog</footer>
