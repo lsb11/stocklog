@@ -1,4 +1,4 @@
-/* StockLog landing — ledger-paper design system
+/* StockLog landing: ledger-paper design system
    paper #F6F4EE · ink #1C2620 · stock-green #0F7B4A · deficit #B03A2E
    pencil #7C776B · hairline #DDD8CB */
 
@@ -32,21 +32,6 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
-
-.deadline {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin: 18px 0 0;
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 12.5px;
-  color: #b03a2e;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-  overflow: hidden;
-}
-.deadline strong { font-weight: 600; }
-.deadlineRule { flex: 1; height: 1px; background: #b03a2e; opacity: 0.45; min-width: 12px; }
 
 .hero {
   display: grid;
@@ -229,5 +214,4 @@
   .hero { grid-template-columns: 1fr; gap: 32px; }
   .heading { font-size: clamp(36px, 10vw, 52px); }
   .entry { grid-template-columns: 1fr; gap: 6px; }
-  .deadline { white-space: normal; }
 }

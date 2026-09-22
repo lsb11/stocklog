@@ -13,15 +13,21 @@ import prisma from "../db.server";
  *
  * Two ways to give the ledger a correct starting point:
  *
- * 1) "Sync from Shopify" — reads every variant's current inventoryQuantity
+ * 1) "Sync from Shopify": reads every variant's current inventoryQuantity
  *    via the Admin GraphQL API and writes a corrective movement per variant
  *    so the ledger's on-hand exactly matches Shopify right now.
  *
- * 2) "Import Stocky / CSV quantities" — paste rows of `SKU,quantity`
+ * 2) "Import Stocky / CSV quantities": paste rows of `SKU,quantity`
  *    (Stocky's stock-level export maps directly to this). Each matching SKU
  *    gets a corrective movement so its on-hand equals the imported quantity.
  *    Run the Shopify sync first so every SKU exists in the ledger.
  */
+
+/** "1 variant", "3 variants", "no variants": never "variant(s)". */
+function plural(count: number, noun: string, plur = `${noun}s`) {
+  if (count === 0) return `no ${plur}`;
+  return `${count} ${count === 1 ? noun : plur}`;
+}
 
 type LedgerRow = {
   variantId: string;
@@ -151,7 +157,11 @@ async function actionSyncShopify(
   return {
     success: true,
     error: null,
-    summary: `Synced ${variants.length} variant(s) from Shopify — ${corrections.length} correction(s) written. Ledger on-hand now matches Shopify.`,
+    summary: `Synced ${plural(variants.length, "variant")} from Shopify. ${
+      corrections.length === 0
+        ? "Nothing needed changing"
+        : `${plural(corrections.length, "correction")} written`
+    }. Your ledger now matches Shopify.`,
     unmatched: [] as string[],
   };
 }
@@ -212,7 +222,7 @@ async function actionImportCsv(shop: string, fd: FormData) {
     return {
       success: false,
       error:
-        "No valid rows found. Expected one `SKU,quantity` pair per line (a header row is skipped automatically).",
+        "No usable rows found. Each line needs a SKU and a quantity, separated by a comma. A header row is skipped automatically.",
       summary: null,
       unmatched,
     };
@@ -225,9 +235,11 @@ async function actionImportCsv(shop: string, fd: FormData) {
   return {
     success: true,
     error: null,
-    summary: `Imported ${parsed} row(s) — ${corrections.length} quantity correction(s) applied${
-      unmatched.length > 0 ? `, ${unmatched.length} SKU(s) not found` : ""
-    }.`,
+    summary: `Imported ${plural(parsed, "row")}. ${
+      corrections.length === 0
+        ? "No quantity needed changing"
+        : `${plural(corrections.length, "quantity correction")} applied`
+    }${unmatched.length > 0 ? `, ${plural(unmatched.length, "SKU")} not found` : ""}.`,
     unmatched: unmatched.slice(0, 25),
   };
 }
@@ -255,18 +267,24 @@ export default function ImportSync() {
   const { trackedVariants } = useLoaderData<typeof loader>();
   const syncFetcher = useFetcher<typeof action>();
   const csvFetcher = useFetcher<typeof action>();
+  const trackedLine =
+    trackedVariants === 0
+      ? "No variants tracked yet."
+      : trackedVariants === 1
+        ? "Tracking 1 variant."
+        : `Tracking ${trackedVariants} variants.`;
   const syncing = syncFetcher.state !== "idle";
   const importing = csvFetcher.state !== "idle";
 
   return (
     <s-page heading="Import / Sync">
-      <s-section heading="Step 1 — Sync current stock from Shopify">
+      <s-section heading="Sync your current stock">
         <s-paragraph>
-          Reads every variant&apos;s current on-hand quantity from Shopify and
-          sets the ledger to match. Run this once when you install, and again
-          any time you want to re-baseline. Currently tracking{" "}
-          {trackedVariants} variant(s).
+          StockLog reads the on-hand quantity of every variant in Shopify and
+          sets your ledger to match. Do this once after installing, and again
+          whenever you want a fresh starting point.
         </s-paragraph>
+        <s-paragraph color="subdued">{trackedLine}</s-paragraph>
         {syncFetcher.data?.error && (
           <s-banner tone="critical" heading="Sync failed">
             <s-paragraph>{syncFetcher.data.error}</s-paragraph>
@@ -289,14 +307,13 @@ export default function ImportSync() {
         </syncFetcher.Form>
       </s-section>
 
-      <s-section heading="Step 2 — Import Stocky quantities (before 31 August)">
+      <s-section heading="Import a Stocky export (optional)">
         <s-paragraph>
-          Shopify permanently deletes all Stocky data on 31 August 2026.
-          Export your stock levels from Stocky as CSV, then paste rows of{" "}
-          <code>SKU,quantity</code> below (extra columns are ignored; the last
-          column is read as the quantity). Matching SKUs are corrected to the
-          imported quantity with full audit history. Run Step 1 first so your
-          SKUs exist in the ledger.
+          If you exported your stock levels from Stocky before it closed, paste
+          the rows here as SKU,quantity. Extra columns are ignored and the last
+          column is read as the quantity. Each matching SKU is set to the
+          imported number, and the change is recorded in your history. Sync
+          your stock first so your SKUs are in the ledger.
         </s-paragraph>
         {csvFetcher.data?.error && (
           <s-banner tone="critical" heading="Import error">

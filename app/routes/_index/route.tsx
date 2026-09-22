@@ -13,11 +13,11 @@ export const links = () => [
 ];
 
 export const meta = () => [
-  { title: "StockLog — the stock ledger for Shopify stores that lost Stocky" },
+  { title: "StockLog: a stock ledger for Shopify" },
   {
     name: "description",
     content:
-      "A persistent stock ledger for your Shopify store. Orders decrement, cancellations and refunds restock, every movement is audited. Still have your Stocky export? Import it. $7.99/month, 7-day free trial.",
+      "Every stock change in your Shopify store, recorded. Orders, refunds, restocks and manual counts in one history. $7.99/month with a 7-day free trial.",
   },
 ];
 
@@ -32,11 +32,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 };
 
 const LEDGER_ROWS = [
-  { sku: "TSHIRT-BLK-M", reason: "ORDER #1042", delta: "−2", onHand: "38", tone: "out" },
-  { sku: "MUG-01", reason: "ORDER #1043", delta: "−1", onHand: "17", tone: "out" },
-  { sku: "TSHIRT-BLK-M", reason: "REFUND · RESTOCK", delta: "+1", onHand: "39", tone: "in" },
+  { sku: "TSHIRT-BLK-M", reason: "ORDER #1042", delta: "-2", onHand: "38", tone: "out" },
+  { sku: "MUG-01", reason: "ORDER #1043", delta: "-1", onHand: "17", tone: "out" },
+  { sku: "TSHIRT-BLK-M", reason: "REFUND", delta: "+1", onHand: "39", tone: "in" },
   { sku: "CANDLE-OAK", reason: "STOCKY IMPORT", delta: "+240", onHand: "240", tone: "in" },
-  { sku: "MUG-01", reason: "ORDER #1044", delta: "−3", onHand: "14", tone: "out" },
+  { sku: "MUG-01", reason: "ORDER #1044", delta: "-3", onHand: "14", tone: "out" },
   { sku: "TOTE-NAT", reason: "SHOPIFY SYNC", delta: "+52", onHand: "52", tone: "in" },
 ] as const;
 
@@ -50,26 +50,20 @@ export default function App() {
         <span className={styles.topbarNote}>A stock ledger for Shopify stores</span>
       </header>
 
-      <p className={styles.deadline}>
-        <span className={styles.deadlineRule} aria-hidden="true" />
-        Shopify shut Stocky down on <strong>31 August 2026</strong>. Still have your export? Import it.
-        <span className={styles.deadlineRule} aria-hidden="true" />
-      </p>
-
       <main className={styles.hero}>
         <section className={styles.heroCopy}>
           <h1 className={styles.heading}>
-            Stocky’s gone.
+            Stocky is gone.
             <br />
-            Keep a stock ledger
+            Your stock history
             <br />
-            that isn’t.
+            doesn’t have to be.
           </h1>
           <p className={styles.lede}>
-            StockLog is a persistent stock ledger inside your Shopify admin.
-            Orders decrement on-hand quantity, cancellations and restocking
-            refunds put it back, and every movement is recorded with a
-            timestamp and reason — like a bookkeeper for your inventory.
+            StockLog records every change to your stock in one place. Orders
+            take units off, restocked refunds put them back, and every manual
+            count is logged with the date and a reason. When a number looks
+            wrong, you can see exactly why.
           </p>
 
           <div className={styles.cta}>
@@ -77,7 +71,8 @@ export default function App() {
               Install from the Shopify App Store
             </a>
             <p className={styles.formHint}>
-              $7.99/month after a 7-day free trial · cancel any time from your Shopify admin
+              $7.99 a month after a 7-day free trial. Cancel from your Shopify
+              admin at any time.
             </p>
           </div>
         </section>
@@ -121,32 +116,32 @@ export default function App() {
           {
             tag: "IMPORT",
             tone: "in",
-            title: "Bring your Stocky export with you",
-            body: "Still have your Stocky export? Import it. Paste the CSV and every SKU's quantity is carried over with a full audit trail — or sync your current Shopify stock in one click and start from today.",
+            title: "Bring your Stocky numbers with you",
+            body: "Sync your current Shopify stock in one click. If you saved a Stocky CSV export, paste it in and each SKU starts from its Stocky quantity, with the import recorded in the history.",
           },
           {
             tag: "ORDERS",
             tone: "out",
-            title: "Decrements that never double-count",
-            body: "Each order reduces on-hand quantity exactly once — retried webhooks are detected and skipped, so your counts stay honest.",
+            title: "Each order counted once",
+            body: "Shopify sometimes sends the same order notification twice. StockLog spots the repeat and skips it, so your counts stay right.",
           },
           {
             tag: "REFUNDS",
             tone: "in",
-            title: "Cancellations and restocks go back",
-            body: "Cancelled orders reverse their exact movements; refunds marked for restock add units back automatically.",
+            title: "Refunds and cancellations put stock back",
+            body: "Cancel an order and its units return. Refund with restock ticked and those units go back into your ledger.",
           },
           {
-            tag: "AUDIT",
+            tag: "HISTORY",
             tone: "neutral",
-            title: "Every movement, on the record",
-            body: "Orders, imports, syncs, corrections — timestamped with a reason. Low-stock items are flagged against reorder points you set per variant.",
+            title: "A full record for every product",
+            body: "Every order, refund, import and correction is logged with the time and the reason. Set a reorder point on any variant and StockLog flags it when stock runs low.",
           },
           {
             tag: "PRICE",
             tone: "neutral",
-            title: "One simple plan",
-            body: "$7.99/month, 7-day free trial, billed through Shopify. No tiers, no per-SKU pricing, cancel any time.",
+            title: "One plan",
+            body: "$7.99 a month, billed through Shopify, with a 7-day free trial. No tiers and no per-SKU charges.",
           },
         ].map((e) => (
           <article className={styles.entry} key={e.tag}>

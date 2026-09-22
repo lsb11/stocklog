@@ -8,7 +8,7 @@ export const links = () => [
 ];
 
 export const meta = () => [
-  { title: "Privacy policy — StockLog" },
+  { title: "Privacy policy: StockLog" },
   {
     name: "description",
     content:
@@ -86,7 +86,7 @@ export default function Privacy() {
         <h2 style={s.h2}>What StockLog never stores</h2>
         <p style={s.p}>
           No customer personal information. Order webhooks are read for their
-          line items only — customer names, email addresses, shipping addresses,
+          line items only. Customer names, email addresses, shipping addresses
           and payment details are not saved to our database. Billing is handled
           entirely by Shopify; StockLog never sees your card details.
         </p>

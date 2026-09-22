@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "665831b9d8e3c1e449928a3a7021eeee"
-name = "Stocklog"
+name = "StockLog"
 application_url = "https://stocklog.onrender.com"
 embedded = true
 

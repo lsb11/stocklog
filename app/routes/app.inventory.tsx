@@ -15,28 +15,36 @@ import {
   findUnsyncedVariantIds,
   parseQuantityDelta,
 } from "../stock.server";
+import {
+  displayTitle,
+  fetchOrderNames,
+  fetchVariantInfo,
+  formatMovementDate,
+  getShopTimezone,
+  reasonTag,
+  type ReasonTag,
+} from "../catalog.server";
 
 type MovementRow = {
   id: string;
-  productTitle: string;
+  title: string;
   sku: string;
   quantityDelta: number;
-  reason: string;
-  orderId: string | null;
-  createdAt: string;
+  reason: ReasonTag;
+  when: string;
 };
 
 type StockRow = {
   variantId: string;
   sku: string;
-  productTitle: string;
+  title: string;
   onHand: number;
   reorderPoint: number | null;
   neverSynced: boolean;
 };
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const shop = session.shop;
 
   const [ledger, settings, recentRaw, unsynced] = await Promise.all([
@@ -51,6 +59,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       take: 25,
       select: {
         id: true,
+        variantId: true,
         productTitle: true,
         sku: true,
         quantityDelta: true,
@@ -62,14 +71,34 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     findUnsyncedVariantIds(shop),
   ]);
 
+  // Variant titles and order names live in Shopify, not in the ledger, so
+  // they are fetched for the rows this page renders and cached per shop.
+  const [variantInfo, orderNames, timeZone] = await Promise.all([
+    fetchVariantInfo(shop, admin, [
+      ...recentRaw.map((m: (typeof recentRaw)[number]) => m.variantId),
+      ...Array.from(ledger.keys()),
+    ]),
+    fetchOrderNames(
+      shop,
+      admin,
+      recentRaw
+        .filter((m: (typeof recentRaw)[number]) => m.reason === "order" && m.orderId)
+        .map((m: (typeof recentRaw)[number]) => m.orderId as string),
+    ),
+    getShopTimezone(shop, admin),
+  ]);
+
   const recent: MovementRow[] = recentRaw.map((m: (typeof recentRaw)[number]) => ({
     id: m.id,
-    productTitle: m.productTitle,
+    title: displayTitle(m.productTitle, variantInfo.get(m.variantId)),
     sku: m.sku ?? "",
     quantityDelta: m.quantityDelta,
-    reason: m.reason,
-    orderId: m.orderId,
-    createdAt: m.createdAt.toISOString(),
+    reason: reasonTag(
+      m.reason,
+      m.orderId,
+      m.orderId ? orderNames.get(m.orderId) : undefined,
+    ),
+    when: formatMovementDate(m.createdAt.toISOString(), timeZone),
   }));
 
   const settingsMap = new Map<string, number | null>(
@@ -84,12 +113,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     .map((row) => ({
       variantId: row.variantId,
       sku: row.sku,
-      productTitle: row.productTitle,
+      title: displayTitle(row.productTitle, variantInfo.get(row.variantId)),
       onHand: row.onHand,
       reorderPoint: settingsMap.get(row.variantId) ?? null,
       neverSynced: unsyncedSet.has(row.variantId),
     }))
-    .sort((a, b) => a.productTitle.localeCompare(b.productTitle));
+    .sort((a, b) => a.title.localeCompare(b.title));
 
   return { stock, recent, unsyncedCount: unsynced.length };
 };
@@ -118,7 +147,7 @@ async function actionAdjustStock(
   const delta = parseQuantityDelta(String(fd.get("quantityDelta") ?? ""));
   if (delta === null) {
     return {
-      error: "Enter a whole number, optionally signed — for example 5, +5 or -3.",
+      error: "Enter a whole number, optionally signed. For example 5, +5 or -3.",
       field: "quantityDelta",
       success: false,
       message: null,
@@ -168,7 +197,7 @@ async function actionSetReorderPoint(shop: string, fd: FormData) {
     rpRaw === "" || rpRaw === null ? null : parseInt(String(rpRaw), 10);
 
   if (!variantId) {
-    return { error: "Variant ID is required.", field: null, success: false, message: null };
+    return { error: "Pick a variant before saving a reorder point.", field: null, success: false, message: null };
   }
   if (reorderPoint !== null && isNaN(reorderPoint)) {
     return {
@@ -197,7 +226,7 @@ async function actionSetReorderPoint(shop: string, fd: FormData) {
 }
 
 const UNEXPECTED_ERROR =
-  "Something went wrong saving that change, so nothing was recorded. Try again — if it keeps happening the details are in the server logs.";
+  "Something went wrong saving that change, so nothing was recorded. Try again. If it keeps happening, the details are in the server logs.";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   let shop = "unknown shop";
@@ -226,6 +255,14 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 };
 
+function SkuCell({ sku }: { sku: string }) {
+  return sku ? (
+    <s-text>{sku}</s-text>
+  ) : (
+    <s-paragraph color="subdued">No SKU</s-paragraph>
+  );
+}
+
 function ReorderCell({ row }: { row: StockRow }) {
   const fetcher = useFetcher();
   const saving = fetcher.state !== "idle";
@@ -238,7 +275,7 @@ function ReorderCell({ row }: { row: StockRow }) {
           type="number"
           name="reorderPoint"
           defaultValue={row.reorderPoint ?? ""}
-          placeholder="—"
+          placeholder="None"
           style={{ width: "72px" }}
           min="0"
           step="1"
@@ -292,9 +329,12 @@ export default function Inventory() {
       {unsyncedCount > 0 && (
         <s-banner tone="warning" heading="Sync current stock">
           <s-paragraph>
-            {unsyncedCount} variant(s) have never been reconciled with Shopify.
-            Their on-hand below counts only the movements StockLog has recorded,
-            so it may not match what Shopify shows.
+            {unsyncedCount === 1
+              ? "1 variant has"
+              : `${unsyncedCount} variants have`}{" "}
+            never been matched against Shopify. The on-hand figure below counts
+            only the movements StockLog has recorded, so it may not match what
+            Shopify shows.
           </s-paragraph>
           <s-link href="/app/import">
             <s-button variant="primary">Sync current stock</s-button>
@@ -305,14 +345,13 @@ export default function Inventory() {
       <s-section heading="Stock on hand">
         {stock.length === 0 ? (
           <s-paragraph color="subdued">
-            No stock movements recorded yet. Use the form below to record an adjustment.
+            No stock history yet. Use the form below to record an adjustment.
           </s-paragraph>
         ) : (
           <s-table>
             <s-table-header-row>
               <s-table-header>Product</s-table-header>
               <s-table-header>SKU</s-table-header>
-              <s-table-header>Variant ID</s-table-header>
               <s-table-header format="numeric">On hand</s-table-header>
               <s-table-header>Reorder point</s-table-header>
             </s-table-header-row>
@@ -324,7 +363,7 @@ export default function Inventory() {
                   <s-table-row key={row.variantId}>
                     <s-table-cell>
                       <s-stack direction="inline" gap="small">
-                        <span>{row.productTitle}</span>
+                        <span>{row.title}</span>
                         {isLow && (
                           <s-badge tone="warning">Low stock</s-badge>
                         )}
@@ -334,14 +373,7 @@ export default function Inventory() {
                       </s-stack>
                     </s-table-cell>
                     <s-table-cell>
-                      {row.sku ? (
-                        <s-text>{row.sku}</s-text>
-                      ) : (
-                        <s-paragraph color="subdued">—</s-paragraph>
-                      )}
-                    </s-table-cell>
-                    <s-table-cell>
-                      <s-paragraph color="subdued">{row.variantId}</s-paragraph>
+                      <SkuCell sku={row.sku} />
                     </s-table-cell>
                     <s-table-cell>
                       <s-badge
@@ -370,8 +402,8 @@ export default function Inventory() {
       <s-section heading="Movement history (last 25)">
         {recent.length === 0 ? (
           <s-paragraph color="subdued">
-            No movements yet. Orders, adjustments, imports, and syncs will
-            appear here with a full audit trail.
+            No movements yet. Orders, adjustments, imports and syncs appear
+            here with the time and the reason.
           </s-paragraph>
         ) : (
           <s-table>
@@ -386,17 +418,11 @@ export default function Inventory() {
               {recent.map((m) => (
                 <s-table-row key={m.id}>
                   <s-table-cell>
-                    <s-paragraph color="subdued">
-                      {new Date(m.createdAt).toLocaleString()}
-                    </s-paragraph>
+                    <s-paragraph color="subdued">{m.when}</s-paragraph>
                   </s-table-cell>
-                  <s-table-cell>{m.productTitle}</s-table-cell>
+                  <s-table-cell>{m.title}</s-table-cell>
                   <s-table-cell>
-                    {m.sku ? (
-                      <s-text>{m.sku}</s-text>
-                    ) : (
-                      <s-paragraph color="subdued">—</s-paragraph>
-                    )}
+                    <SkuCell sku={m.sku} />
                   </s-table-cell>
                   <s-table-cell>
                     <s-badge tone={m.quantityDelta >= 0 ? "success" : "warning"}>
@@ -404,17 +430,13 @@ export default function Inventory() {
                     </s-badge>
                   </s-table-cell>
                   <s-table-cell>
-                    <s-badge
-                      tone={
-                        m.reason === "order"
-                          ? "info"
-                          : m.reason === "order_cancelled" || m.reason === "refund_restock"
-                            ? "warning"
-                            : "neutral"
-                      }
-                    >
-                      {m.reason.replace(/_/g, " ")}
-                    </s-badge>
+                    {m.reason.href ? (
+                      <s-link href={m.reason.href}>
+                        <s-badge tone={m.reason.tone}>{m.reason.label}</s-badge>
+                      </s-link>
+                    ) : (
+                      <s-badge tone={m.reason.tone}>{m.reason.label}</s-badge>
+                    )}
                   </s-table-cell>
                 </s-table-row>
               ))}
@@ -441,8 +463,6 @@ export default function Inventory() {
                 <s-text>{pickedVariant.productTitle}</s-text>
                 <s-paragraph color="subdued">
                   {pickedVariant.sku ? `SKU: ${pickedVariant.sku}` : "No SKU"}
-                  {" · "}
-                  {pickedVariant.variantId}
                 </s-paragraph>
                 <s-button onClick={openPicker}>Change product</s-button>
               </s-stack>

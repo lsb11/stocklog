@@ -31,7 +31,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       select: { id: true },
     });
     if (existing) {
-      console.log(`Order ${orderId} already recorded for ${shop} — skipping duplicate delivery`);
+      console.log(`Order ${orderId} already recorded for ${shop}: skipping duplicate delivery`);
       return new Response();
     }
 
