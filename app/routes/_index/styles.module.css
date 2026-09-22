@@ -72,33 +72,10 @@
   font-weight: 500;
 }
 
-.form { max-width: 520px; }
-.label {
-  display: block;
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #7c776b;
-  margin-bottom: 8px;
-}
-.formRow { display: flex; gap: 10px; flex-wrap: wrap; }
-.input {
-  flex: 1 1 240px;
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 15px;
-  padding: 13px 14px;
-  border: 1.5px solid #1c2620;
-  border-radius: 6px;
-  background: #fffdf8;
-  color: #1c2620;
-}
-.input:focus-visible {
-  outline: 3px solid #0f7b4a;
-  outline-offset: 1px;
-  border-color: #0f7b4a;
-}
-.button {
+.cta { max-width: 520px; }
+.ctaButton {
+  display: inline-flex;
+  align-items: center;
   font-family: "Archivo", system-ui, sans-serif;
   font-weight: 700;
   font-size: 15px;
@@ -107,12 +84,13 @@
   border-radius: 6px;
   background: #0f7b4a;
   color: #f6f4ee;
+  text-decoration: none;
   cursor: pointer;
   transition: transform 0.12s ease, background 0.12s ease;
 }
-.button:hover { background: #0c6a3f; }
-.button:active { transform: translateY(1px); }
-.button:focus-visible { outline: 3px solid #1c2620; outline-offset: 2px; }
+.ctaButton:hover { background: #0c6a3f; }
+.ctaButton:active { transform: translateY(1px); }
+.ctaButton:focus-visible { outline: 3px solid #1c2620; outline-offset: 2px; }
 .formHint {
   margin: 10px 0 0;
   font-size: 13.5px;
@@ -188,7 +166,7 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .ledgerRow { animation: none; }
-  .button { transition: none; }
+  .ctaButton { transition: none; }
 }
 
 /* ---- feature entries as ledger lines ---- */

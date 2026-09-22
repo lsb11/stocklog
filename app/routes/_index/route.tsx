@@ -1,7 +1,5 @@
 import type { LoaderFunctionArgs } from "react-router";
-import { redirect, Form, useLoaderData } from "react-router";
-
-import { login } from "../../shopify.server";
+import { redirect } from "react-router";
 
 import styles from "./styles.module.css";
 
@@ -15,11 +13,11 @@ export const links = () => [
 ];
 
 export const meta = () => [
-  { title: "StockLog — the stock ledger for Shopify. Import your Stocky data before 31 Aug." },
+  { title: "StockLog — the stock ledger for Shopify stores that lost Stocky" },
   {
     name: "description",
     content:
-      "A persistent stock ledger for your Shopify store. Orders decrement, cancellations and refunds restock, every movement is audited. Imports your Stocky export before Shopify deletes it on 31 August 2026. $7.99/month, 7-day free trial.",
+      "A persistent stock ledger for your Shopify store. Orders decrement, cancellations and refunds restock, every movement is audited. Still have your Stocky export? Import it. $7.99/month, 7-day free trial.",
   },
 ];
 
@@ -30,7 +28,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     throw redirect(`/app?${url.searchParams.toString()}`);
   }
 
-  return { showForm: Boolean(login) };
+  return null;
 };
 
 const LEDGER_ROWS = [
@@ -43,29 +41,29 @@ const LEDGER_ROWS = [
 ] as const;
 
 export default function App() {
-  const { showForm } = useLoaderData<typeof loader>();
-
   return (
     <div className={styles.page}>
       <header className={styles.topbar}>
         <span className={styles.wordmark}>
           Stock<span className={styles.wordmarkAccent}>Log</span>
         </span>
-        <span className={styles.topbarNote}>Built for Shopify</span>
+        <span className={styles.topbarNote}>A stock ledger for Shopify stores</span>
       </header>
 
       <p className={styles.deadline}>
         <span className={styles.deadlineRule} aria-hidden="true" />
-        Shopify deletes all Stocky data on <strong>31 August 2026</strong> — import yours first.
+        Shopify shut Stocky down on <strong>31 August 2026</strong>. Still have your export? Import it.
         <span className={styles.deadlineRule} aria-hidden="true" />
       </p>
 
       <main className={styles.hero}>
         <section className={styles.heroCopy}>
           <h1 className={styles.heading}>
-            Every unit,
+            Stocky’s gone.
             <br />
-            accounted for.
+            Keep a stock ledger
+            <br />
+            that isn’t.
           </h1>
           <p className={styles.lede}>
             StockLog is a persistent stock ledger inside your Shopify admin.
@@ -74,30 +72,14 @@ export default function App() {
             timestamp and reason — like a bookkeeper for your inventory.
           </p>
 
-          {showForm && (
-            <Form className={styles.form} method="post" action="/auth/login">
-              <label className={styles.label} htmlFor="shop">
-                Shop domain
-              </label>
-              <div className={styles.formRow}>
-                <input
-                  className={styles.input}
-                  type="text"
-                  id="shop"
-                  name="shop"
-                  placeholder="my-shop.myshopify.com"
-                  autoComplete="off"
-                  spellCheck={false}
-                />
-                <button className={styles.button} type="submit">
-                  Open your ledger
-                </button>
-              </div>
-              <p className={styles.formHint}>
-                $7.99/month after a 7-day free trial · cancel any time from your Shopify admin
-              </p>
-            </Form>
-          )}
+          <div className={styles.cta}>
+            <a className={styles.ctaButton} href="https://apps.shopify.com/">
+              Install from the Shopify App Store
+            </a>
+            <p className={styles.formHint}>
+              $7.99/month after a 7-day free trial · cancel any time from your Shopify admin
+            </p>
+          </div>
         </section>
 
         <section className={styles.ledger} aria-label="Example stock ledger">
@@ -139,8 +121,8 @@ export default function App() {
           {
             tag: "IMPORT",
             tone: "in",
-            title: "Rescue your Stocky data",
-            body: "One click syncs your current Shopify stock; paste your Stocky CSV export and every SKU's quantity is carried over with a full audit trail. Nothing is lost on 31 August.",
+            title: "Bring your Stocky export with you",
+            body: "Still have your Stocky export? Import it. Paste the CSV and every SKU's quantity is carried over with a full audit trail — or sync your current Shopify stock in one click and start from today.",
           },
           {
             tag: "ORDERS",
