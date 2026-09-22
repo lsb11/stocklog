@@ -1,6 +1,7 @@
 import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
+import { ensureOpeningBalances } from "../stock.server";
 
 type RefundLineItem = {
   quantity: number;
@@ -25,7 +26,7 @@ type RefundPayload = {
  * ignored — the merchant chose not to return them to inventory.
  */
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { shop, topic, payload } = await authenticate.webhook(request);
+  const { admin, shop, topic, payload } = await authenticate.webhook(request);
   console.log(`Received ${topic} webhook for ${shop}`);
 
   const refund = payload as RefundPayload;
@@ -90,6 +91,20 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       .filter((m) => m.quantityDelta > 0);
 
     if (netted.length > 0) {
+      // Same opening-balance rule as orders/create: a variant first seen here
+      // starts from Shopify's current quantity, net of the restock Shopify has
+      // already applied for this refund.
+      await ensureOpeningBalances(
+        shop,
+        admin,
+        netted.map((m) => ({
+          variantId: m.variantId,
+          sku: m.sku,
+          productTitle: m.productTitle,
+          appliedDelta: m.quantityDelta,
+        })),
+      );
+
       await db.stockMovement.createMany({ data: netted });
       console.log(`Restocked ${netted.length} line(s) for refund ${refundRef}`);
     } else if (movements.length > 0) {

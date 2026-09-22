@@ -9,6 +9,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
+import {
+  buildLedger,
+  ensureOpeningBalances,
+  findUnsyncedVariantIds,
+  parseQuantityDelta,
+} from "../stock.server";
 
 type MovementRow = {
   id: string;
@@ -26,17 +32,15 @@ type StockRow = {
   productTitle: string;
   onHand: number;
   reorderPoint: number | null;
+  neverSynced: boolean;
 };
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
 
-  const [movements, settings, recentRaw] = await Promise.all([
-    prisma.stockMovement.findMany({
-      where: { shop },
-      select: { variantId: true, sku: true, productTitle: true, quantityDelta: true },
-    }),
+  const [ledger, settings, recentRaw, unsynced] = await Promise.all([
+    buildLedger(shop),
     prisma.variantSettings.findMany({
       where: { shop },
       select: { variantId: true, reorderPoint: true },
@@ -55,6 +59,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         createdAt: true,
       },
     }),
+    findUnsyncedVariantIds(shop),
   ]);
 
   const recent: MovementRow[] = recentRaw.map((m: (typeof recentRaw)[number]) => ({
@@ -67,52 +72,73 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     createdAt: m.createdAt.toISOString(),
   }));
 
-  const grouped = new Map<string, StockRow>();
-  for (const m of movements) {
-    const existing = grouped.get(m.variantId);
-    if (existing) {
-      existing.onHand += m.quantityDelta;
-    } else {
-      grouped.set(m.variantId, {
-        variantId: m.variantId,
-        sku: m.sku ?? "",
-        productTitle: m.productTitle,
-        onHand: m.quantityDelta,
-        reorderPoint: null,
-      });
-    }
-  }
-
   const settingsMap = new Map<string, number | null>(
     settings.map((s: { variantId: string; reorderPoint: number | null }) => [
       s.variantId,
       s.reorderPoint ?? null,
     ]),
   );
-  for (const row of grouped.values()) {
-    row.reorderPoint = settingsMap.get(row.variantId) ?? null;
-  }
 
-  const stock = Array.from(grouped.values()).sort((a, b) =>
-    a.productTitle.localeCompare(b.productTitle),
-  );
+  const unsyncedSet = new Set(unsynced);
+  const stock: StockRow[] = Array.from(ledger.values())
+    .map((row) => ({
+      variantId: row.variantId,
+      sku: row.sku,
+      productTitle: row.productTitle,
+      onHand: row.onHand,
+      reorderPoint: settingsMap.get(row.variantId) ?? null,
+      neverSynced: unsyncedSet.has(row.variantId),
+    }))
+    .sort((a, b) => a.productTitle.localeCompare(b.productTitle));
 
-  return { stock, recent };
+  return { stock, recent, unsyncedCount: unsynced.length };
 };
 
-async function actionAdjustStock(shop: string, fd: FormData) {
+async function actionAdjustStock(
+  shop: string,
+  admin: Awaited<ReturnType<typeof authenticate.admin>>["admin"],
+  fd: FormData,
+) {
   const productTitle = String(fd.get("productTitle") ?? "").trim();
   const variantId = String(fd.get("variantId") ?? "").trim();
   const sku = String(fd.get("sku") ?? "").trim();
-  const delta = parseInt(String(fd.get("quantityDelta") ?? "0"), 10);
   const reason = String(fd.get("reason") ?? "manual");
 
-  if (!productTitle || !variantId || isNaN(delta) || delta === 0) {
+  if (!productTitle || !variantId) {
     return {
-      error: "Product title, variant ID, and a non-zero quantity delta are required.",
+      error: "Pick a product or variant before saving.",
+      field: null,
       success: false,
+      message: null,
     };
   }
+
+  // The field is free text so merchants can write the adjustment the way they
+  // think about it: "+5" received, "-3" damaged. A bare "5" still means +5.
+  const delta = parseQuantityDelta(String(fd.get("quantityDelta") ?? ""));
+  if (delta === null) {
+    return {
+      error: "Enter a whole number, optionally signed — for example 5, +5 or -3.",
+      field: "quantityDelta",
+      success: false,
+      message: null,
+    };
+  }
+  if (delta === 0) {
+    return {
+      error: "A quantity change of 0 wouldn't alter anything. Enter a non-zero amount.",
+      field: "quantityDelta",
+      success: false,
+      message: null,
+    };
+  }
+
+  // An adjustment against a variant StockLog has never seen must open from
+  // Shopify's current quantity, not zero. Nothing here is pushed back to
+  // Shopify, so the adjustment itself isn't reflected there yet.
+  await ensureOpeningBalances(shop, admin, [
+    { variantId, sku: sku || null, productTitle, appliedDelta: 0 },
+  ]);
 
   await prisma.stockMovement.create({
     data: {
@@ -127,7 +153,12 @@ async function actionAdjustStock(shop: string, fd: FormData) {
     },
   });
 
-  return { success: true, error: null };
+  return {
+    success: true,
+    error: null,
+    field: null,
+    message: `${delta > 0 ? "+" : ""}${delta} recorded for ${productTitle}.`,
+  };
 }
 
 async function actionSetReorderPoint(shop: string, fd: FormData) {
@@ -137,10 +168,15 @@ async function actionSetReorderPoint(shop: string, fd: FormData) {
     rpRaw === "" || rpRaw === null ? null : parseInt(String(rpRaw), 10);
 
   if (!variantId) {
-    return { error: "Variant ID is required.", success: false };
+    return { error: "Variant ID is required.", field: null, success: false, message: null };
   }
   if (reorderPoint !== null && isNaN(reorderPoint)) {
-    return { error: "Reorder point must be a valid number.", success: false };
+    return {
+      error: "Reorder point must be a valid number.",
+      field: null,
+      success: false,
+      message: null,
+    };
   }
 
   await prisma.variantSettings.upsert({
@@ -149,7 +185,15 @@ async function actionSetReorderPoint(shop: string, fd: FormData) {
     create: { shop, variantId, reorderPoint },
   });
 
-  return { success: true, error: null };
+  return {
+    success: true,
+    error: null,
+    field: null,
+    message:
+      reorderPoint === null
+        ? "Reorder point cleared."
+        : `Reorder point set to ${reorderPoint}.`,
+  };
 }
 
 const UNEXPECTED_ERROR =
@@ -159,7 +203,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   let shop = "unknown shop";
 
   try {
-    const { session } = await authenticate.admin(request);
+    const { admin, session } = await authenticate.admin(request);
     shop = session.shop;
 
     const fd = await request.formData();
@@ -168,7 +212,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     if (intent === "set-reorder-point") {
       return await actionSetReorderPoint(shop, fd);
     }
-    return await actionAdjustStock(shop, fd);
+    return await actionAdjustStock(shop, admin, fd);
   } catch (error) {
     // Shopify throws Responses to drive its auth and billing redirects, and
     // App Bridge retries some of them — those have to keep bubbling.
@@ -178,7 +222,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     // Prisma failure) becomes a banner on the page instead of taking the whole
     // route down with React Router's "Application Error" screen.
     console.error(`[StockLog] Inventory action failed for ${shop}`, error);
-    return { error: UNEXPECTED_ERROR, success: false };
+    return { error: UNEXPECTED_ERROR, field: null, success: false, message: null };
   }
 };
 
@@ -214,7 +258,7 @@ function ReorderCell({ row }: { row: StockRow }) {
 type PickedVariant = { variantId: string; sku: string; productTitle: string };
 
 export default function Inventory() {
-  const { stock, recent } = useLoaderData<typeof loader>();
+  const { stock, recent, unsyncedCount } = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
   const formRef = useRef<HTMLFormElement>(null);
   const [pickedVariant, setPickedVariant] = useState<PickedVariant | null>(null);
@@ -237,6 +281,7 @@ export default function Inventory() {
     if (fetcher.data?.success) {
       formRef.current?.reset();
       setPickedVariant(null);
+      shopify.toast.show(fetcher.data.message ?? "Adjustment saved");
     }
   }, [fetcher.data]);
 
@@ -244,6 +289,19 @@ export default function Inventory() {
 
   return (
     <s-page heading="Inventory">
+      {unsyncedCount > 0 && (
+        <s-banner tone="warning" heading="Sync current stock">
+          <s-paragraph>
+            {unsyncedCount} variant(s) have never been reconciled with Shopify.
+            Their on-hand below counts only the movements StockLog has recorded,
+            so it may not match what Shopify shows.
+          </s-paragraph>
+          <s-link href="/app/import">
+            <s-button variant="primary">Sync current stock</s-button>
+          </s-link>
+        </s-banner>
+      )}
+
       <s-section heading="Stock on hand">
         {stock.length === 0 ? (
           <s-paragraph color="subdued">
@@ -269,6 +327,9 @@ export default function Inventory() {
                         <span>{row.productTitle}</span>
                         {isLow && (
                           <s-badge tone="warning">Low stock</s-badge>
+                        )}
+                        {row.neverSynced && (
+                          <s-badge tone="warning">Not synced</s-badge>
                         )}
                       </s-stack>
                     </s-table-cell>
@@ -363,14 +424,9 @@ export default function Inventory() {
       </s-section>
 
       <s-section heading="Record stock adjustment">
-        {fetcher.data?.error && (
-          <s-banner tone="critical" heading="Couldn't save">
+        {fetcher.data?.error && !fetcher.data.field && (
+          <s-banner tone="critical" heading="Adjustment not saved">
             <s-paragraph>{fetcher.data.error}</s-paragraph>
-          </s-banner>
-        )}
-        {fetcher.data?.success && (
-          <s-banner tone="success" heading="Adjustment saved">
-            <s-paragraph>Stock movement recorded successfully.</s-paragraph>
           </s-banner>
         )}
 
@@ -393,11 +449,15 @@ export default function Inventory() {
             ) : (
               <s-button onClick={openPicker}>Select product / variant</s-button>
             )}
-            <s-number-field
-              label="Quantity delta"
+            <s-text-field
+              label="Quantity change"
               name="quantityDelta"
-              placeholder="e.g. 10 or -5"
+              placeholder="e.g. +10 or -5"
+              details="Use + to add stock and - to remove it. A plain number adds."
               required
+              {...(fetcher.data?.field === "quantityDelta"
+                ? { error: fetcher.data.error }
+                : {})}
             />
             <s-select label="Reason" name="reason">
               <s-option value="manual">Manual adjustment</s-option>

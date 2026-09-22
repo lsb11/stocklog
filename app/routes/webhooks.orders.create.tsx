@@ -1,6 +1,7 @@
 import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
+import { ensureOpeningBalances } from "../stock.server";
 
 type LineItem = {
   title: string;
@@ -16,7 +17,7 @@ type OrderPayload = {
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { shop, topic, payload } = await authenticate.webhook(request);
+  const { admin, shop, topic, payload } = await authenticate.webhook(request);
   console.log(`Received ${topic} webhook for ${shop}`);
 
   const order = payload as OrderPayload;
@@ -48,6 +49,21 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       }));
 
     if (movements.length > 0) {
+      // A variant we've never seen must not start life at zero, or this order
+      // pushes it straight into negative stock. Open it at whatever Shopify
+      // holds right now, net of the decrement Shopify has already applied for
+      // this order, so the ledger lands exactly on Shopify's figure.
+      await ensureOpeningBalances(
+        shop,
+        admin,
+        movements.map((m) => ({
+          variantId: m.variantId,
+          sku: m.sku,
+          productTitle: m.productTitle,
+          appliedDelta: m.quantityDelta,
+        })),
+      );
+
       await db.stockMovement.createMany({ data: movements });
       console.log(`Created ${movements.length} stock movement(s) for order ${orderId}`);
     }

@@ -2,123 +2,91 @@ import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
 import { useLoaderData } from "react-router";
 import { authenticate } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
+import prisma from "../db.server";
+import { buildLedger, findUnsyncedVariantIds } from "../stock.server";
 
-type OrderNode = {
+type MovementRow = {
   id: string;
-  name: string;
+  productTitle: string;
+  sku: string;
+  quantityDelta: number;
+  reason: string;
   createdAt: string;
-  displayFulfillmentStatus: string;
-  totalPriceSet?: {
-    shopMoney?: { amount?: string; currencyCode?: string } | null;
-  } | null;
 };
 
-type RecentOrdersResponse = {
-  data?: { orders?: { edges?: { node: OrderNode }[] } | null } | null;
-  errors?: unknown[];
+type LowStockRow = {
+  variantId: string;
+  productTitle: string;
+  sku: string;
+  onHand: number;
+  reorderPoint: number;
 };
-
-type OrderRow = {
-  id: string;
-  name: string;
-  createdAt: string;
-  displayFulfillmentStatus: string;
-  total: string;
-  currency: string;
-};
-
-const PCD_ERROR_PATTERN = /not approved to access the order object|protected customer data|read_orders|access denied/i;
-
-function errToString(err: unknown): string {
-  if (typeof err === "string") return err;
-  if (err instanceof Error) {
-    const body = (err as Error & { body?: unknown }).body;
-    return [err.message, body ? JSON.stringify(body) : ""].join(" ");
-  }
-  return JSON.stringify(err) ?? "";
-}
-
-function isPcdError(err: unknown): boolean {
-  return PCD_ERROR_PATTERN.test(errToString(err));
-}
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { admin } = await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
+  const shop = session.shop;
 
-  const noOrders = { orders: [] as OrderRow[], ordersToday: 0, revenue7d: 0, totalOrders: 0, currency: "", accessPending: false };
-  const accessPendingResult = { ...noOrders, accessPending: true };
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
-  try {
-    const response = await admin.graphql(
-      `#graphql
-        query RecentOrders {
-          orders(first: 50, sortKey: CREATED_AT, reverse: true) {
-            edges {
-              node {
-                id
-                name
-                createdAt
-                displayFulfillmentStatus
-                totalPriceSet { shopMoney { amount currencyCode } }
-              }
-            }
-          }
-        }`,
-    );
+  const [ledger, settings, recentRaw, movements7d, unsynced] = await Promise.all([
+    buildLedger(shop),
+    prisma.variantSettings.findMany({
+      where: { shop },
+      select: { variantId: true, reorderPoint: true },
+    }),
+    prisma.stockMovement.findMany({
+      where: { shop },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+      select: {
+        id: true,
+        productTitle: true,
+        sku: true,
+        quantityDelta: true,
+        reason: true,
+        createdAt: true,
+      },
+    }),
+    prisma.stockMovement.count({ where: { shop, createdAt: { gte: sevenDaysAgo } } }),
+    findUnsyncedVariantIds(shop),
+  ]);
 
-    const body = (await response.json()) as RecentOrdersResponse;
+  const recent: MovementRow[] = recentRaw.map((m: (typeof recentRaw)[number]) => ({
+    id: m.id,
+    productTitle: m.productTitle,
+    sku: m.sku ?? "",
+    quantityDelta: m.quantityDelta,
+    reason: m.reason,
+    createdAt: m.createdAt.toISOString(),
+  }));
 
-    if (body?.errors?.length) {
-      const errs = body.errors;
-      console.error("[StockLog] GraphQL errors:", JSON.stringify(errs, null, 2));
-      if (isPcdError(errs)) return accessPendingResult;
-      return noOrders;
-    }
-
-    const edges = body?.data?.orders?.edges ?? [];
-
-    const orders: OrderRow[] = edges.map((e: { node: OrderNode }) => ({
-      id: e.node.id,
-      name: e.node.name,
-      createdAt: e.node.createdAt,
-      displayFulfillmentStatus: e.node.displayFulfillmentStatus,
-      total: e.node.totalPriceSet?.shopMoney?.amount ?? "0",
-      currency: e.node.totalPriceSet?.shopMoney?.currencyCode ?? "",
-    }));
-
-    const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-
-    const ordersToday = orders.filter(
-      (o) => new Date(o.createdAt) >= startOfToday,
-    ).length;
-    const revenue7d = orders
-      .filter((o) => new Date(o.createdAt) >= sevenDaysAgo)
-      .reduce((sum, o) => sum + parseFloat(o.total || "0"), 0);
-    const currency = orders[0]?.currency ?? "";
-
-    return { orders, ordersToday, revenue7d, totalOrders: orders.length, currency, accessPending: false };
-  } catch (err) {
-    console.error("[StockLog] loader threw:", errToString(err), err);
-    if (isPcdError(err)) return accessPendingResult;
-    return noOrders;
+  const lowStock: LowStockRow[] = [];
+  for (const s of settings as { variantId: string; reorderPoint: number | null }[]) {
+    if (s.reorderPoint == null) continue;
+    const row = ledger.get(s.variantId);
+    if (!row || row.onHand > s.reorderPoint) continue;
+    lowStock.push({
+      variantId: row.variantId,
+      productTitle: row.productTitle,
+      sku: row.sku,
+      onHand: row.onHand,
+      reorderPoint: s.reorderPoint,
+    });
   }
+  lowStock.sort((a, b) => a.onHand - b.onHand);
+
+  return {
+    skusTracked: ledger.size,
+    movements7d,
+    lowStockCount: lowStock.length,
+    lowStock: lowStock.slice(0, 5),
+    recent,
+    unsyncedCount: unsynced.length,
+  };
 };
 
-function fmtMoney(amount: number, currency: string) {
-  try {
-    return new Intl.NumberFormat("en-GB", {
-      style: "currency",
-      currency: currency || "USD",
-    }).format(amount);
-  } catch {
-    return `${amount.toFixed(2)} ${currency}`;
-  }
-}
-
 function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString("en-GB", {
+  return new Date(iso).toLocaleString("en-GB", {
     day: "2-digit",
     month: "short",
     hour: "2-digit",
@@ -126,77 +94,156 @@ function fmtDate(iso: string) {
   });
 }
 
-function fulfillmentTone(status: string) {
-  if (status === "FULFILLED") return "success";
-  if (status === "PARTIALLY_FULFILLED") return "warning";
-  if (status === "UNFULFILLED") return "caution";
+function reasonTone(reason: string) {
+  if (reason === "order") return "info";
+  if (reason === "order_cancelled" || reason === "refund_restock") return "warning";
   return "neutral";
 }
 
 export default function Index() {
-  const { orders, ordersToday, revenue7d, totalOrders, currency, accessPending } =
-    useLoaderData<typeof loader>();
+  const {
+    skusTracked,
+    movements7d,
+    lowStockCount,
+    lowStock,
+    recent,
+    unsyncedCount,
+  } = useLoaderData<typeof loader>();
+
+  if (skusTracked === 0) {
+    return (
+      <s-page heading="StockLog">
+        <s-section heading="Start your stock ledger">
+          <s-stack direction="block" gap="base">
+            <s-paragraph>
+              Nothing is being tracked yet. Pull your current quantities in from
+              Shopify, or paste your Stocky export, and every order, refund and
+              adjustment from then on lands here with a full audit trail.
+            </s-paragraph>
+            <s-stack direction="inline" gap="base">
+              <s-link href="/app/import">
+                <s-button variant="primary">Import / Sync stock</s-button>
+              </s-link>
+              <s-link href="/app/inventory">
+                <s-button>Record an adjustment</s-button>
+              </s-link>
+            </s-stack>
+          </s-stack>
+        </s-section>
+      </s-page>
+    );
+  }
 
   return (
     <s-page heading="StockLog">
-      {accessPending && (
-        <s-banner tone="warning" heading="Order data access pending">
+      {unsyncedCount > 0 && (
+        <s-banner tone="warning" heading="Sync current stock">
           <s-paragraph>
-            Approve order data access in the Partners Dashboard → App Setup →
-            Protected customer data, then reinstall the app.
+            {unsyncedCount} variant(s) have never been reconciled with Shopify,
+            so their on-hand counts only the movements StockLog has seen. Run a
+            sync to set them to Shopify&apos;s current quantities.
           </s-paragraph>
+          <s-link href="/app/import">
+            <s-button variant="primary">Sync current stock</s-button>
+          </s-link>
         </s-banner>
       )}
+
       <s-section>
         <s-stack direction="inline" gap="base">
           <s-box padding="base" background="base">
-            <s-paragraph color="subdued">Orders today</s-paragraph>
-            <s-heading>{ordersToday}</s-heading>
+            <s-paragraph color="subdued">SKUs tracked</s-paragraph>
+            <s-heading>{skusTracked}</s-heading>
           </s-box>
           <s-box padding="base" background="base">
-            <s-paragraph color="subdued">Revenue (7 days)</s-paragraph>
-            <s-heading>{fmtMoney(revenue7d, currency)}</s-heading>
+            <s-paragraph color="subdued">Movements (7 days)</s-paragraph>
+            <s-heading>{movements7d}</s-heading>
           </s-box>
           <s-box padding="base" background="base">
-            <s-paragraph color="subdued">Orders shown</s-paragraph>
-            <s-heading>{totalOrders}</s-heading>
+            <s-paragraph color="subdued">Low stock items</s-paragraph>
+            <s-heading>{lowStockCount}</s-heading>
           </s-box>
         </s-stack>
       </s-section>
 
-      <s-section heading="Recent orders">
-        {orders.length === 0 ? (
-          <s-paragraph>
-            Once your store takes orders, they&apos;ll appear here.
-          </s-paragraph>
-        ) : (
+      {lowStock.length > 0 && (
+        <s-section heading="Low stock">
           <s-table>
             <s-table-header-row>
-              <s-table-header>Order</s-table-header>
-              <s-table-header>Date</s-table-header>
-              <s-table-header format="numeric">Total</s-table-header>
-              <s-table-header>Fulfilment</s-table-header>
+              <s-table-header>Product</s-table-header>
+              <s-table-header>SKU</s-table-header>
+              <s-table-header format="numeric">On hand</s-table-header>
+              <s-table-header format="numeric">Reorder point</s-table-header>
             </s-table-header-row>
             <s-table-body>
-              {orders.map((order) => (
-                <s-table-row key={order.id}>
+              {lowStock.map((row) => (
+                <s-table-row key={row.variantId}>
+                  <s-table-cell>{row.productTitle}</s-table-cell>
                   <s-table-cell>
-                    <s-text>{order.name}</s-text>
+                    {row.sku ? (
+                      <s-text>{row.sku}</s-text>
+                    ) : (
+                      <s-paragraph color="subdued">—</s-paragraph>
+                    )}
                   </s-table-cell>
-                  <s-table-cell>{fmtDate(order.createdAt)}</s-table-cell>
                   <s-table-cell>
-                    {fmtMoney(parseFloat(order.total), order.currency)}
-                  </s-table-cell>
-                  <s-table-cell>
-                    <s-badge tone={fulfillmentTone(order.displayFulfillmentStatus)}>
-                      {order.displayFulfillmentStatus.replace(/_/g, " ").toLowerCase()}
+                    <s-badge tone={row.onHand > 0 ? "warning" : "critical"}>
+                      {row.onHand}
                     </s-badge>
                   </s-table-cell>
+                  <s-table-cell>{row.reorderPoint}</s-table-cell>
                 </s-table-row>
               ))}
             </s-table-body>
           </s-table>
-        )}
+          {lowStockCount > lowStock.length && (
+            <s-paragraph color="subdued">
+              Showing the {lowStock.length} lowest of {lowStockCount}.
+            </s-paragraph>
+          )}
+        </s-section>
+      )}
+
+      <s-section heading="Recent movements">
+        <s-table>
+          <s-table-header-row>
+            <s-table-header>When</s-table-header>
+            <s-table-header>Product</s-table-header>
+            <s-table-header>SKU</s-table-header>
+            <s-table-header format="numeric">Change</s-table-header>
+            <s-table-header>Reason</s-table-header>
+          </s-table-header-row>
+          <s-table-body>
+            {recent.map((m) => (
+              <s-table-row key={m.id}>
+                <s-table-cell>
+                  <s-paragraph color="subdued">{fmtDate(m.createdAt)}</s-paragraph>
+                </s-table-cell>
+                <s-table-cell>{m.productTitle}</s-table-cell>
+                <s-table-cell>
+                  {m.sku ? (
+                    <s-text>{m.sku}</s-text>
+                  ) : (
+                    <s-paragraph color="subdued">—</s-paragraph>
+                  )}
+                </s-table-cell>
+                <s-table-cell>
+                  <s-badge tone={m.quantityDelta >= 0 ? "success" : "warning"}>
+                    {m.quantityDelta > 0 ? `+${m.quantityDelta}` : m.quantityDelta}
+                  </s-badge>
+                </s-table-cell>
+                <s-table-cell>
+                  <s-badge tone={reasonTone(m.reason)}>
+                    {m.reason.replace(/_/g, " ")}
+                  </s-badge>
+                </s-table-cell>
+              </s-table-row>
+            ))}
+          </s-table-body>
+        </s-table>
+        <s-link href="/app/inventory">
+          <s-button>View full inventory</s-button>
+        </s-link>
       </s-section>
     </s-page>
   );

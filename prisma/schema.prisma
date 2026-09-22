@@ -32,6 +32,9 @@ model StockMovement {
   @@index([shop, variantId])
   @@index([shop, createdAt])
   @@index([shop, sourceOrderId])
+  // A partial unique index on (shop, variantId) WHERE reason = 'opening_balance'
+  // is created in migration 20260922120000_opening_balance_unique. Prisma schema
+  // syntax cannot express partial indexes, so it lives in SQL only.
 }
 
 model VariantSettings {
