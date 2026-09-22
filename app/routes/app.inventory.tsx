@@ -292,7 +292,12 @@ function ReorderCell({ row }: { row: StockRow }) {
   );
 }
 
-type PickedVariant = { variantId: string; sku: string; productTitle: string };
+type PickedVariant = {
+  variantId: string;
+  sku: string;
+  productTitle: string;
+  variantTitle: string | null;
+};
 
 export default function Inventory() {
   const { stock, recent, unsyncedCount } = useLoaderData<typeof loader>();
@@ -301,17 +306,32 @@ export default function Inventory() {
   const [pickedVariant, setPickedVariant] = useState<PickedVariant | null>(null);
 
   const openPicker = useCallback(async () => {
-    const selection = await shopify.resourcePicker({ type: "variant", multiple: false });
-    if (selection && selection.length > 0) {
-      const v = selection[0];
-      // v.product?.title is the canonical source; displayName/title fall back
-      // as "Product - Variant" (not in the published picker types).
-      const fallback = v as { displayName?: string; title?: string };
-      const productTitle =
-        v.product?.title ??
-        (fallback.displayName ?? fallback.title ?? "").replace(/\s[-–]\s.+$/, "");
-      setPickedVariant({ variantId: v.id, sku: v.sku ?? "", productTitle });
-    }
+    // The product picker shows each product's image and title and lets a
+    // merchant expand it to pick a variant; the variant picker on its own only
+    // showed variant titles ("Black", "Large", or blank), which merchants
+    // can't tell apart.
+    const selection = await shopify.resourcePicker({
+      type: "product",
+      action: "select",
+      multiple: false,
+      filter: { variants: true },
+    });
+    if (!selection || selection.length === 0) return;
+
+    const product = selection[0] as ShopifyResourcePickerProduct;
+    // Expanding and choosing a variant returns just that variant; selecting
+    // the product row returns all of them, which for a product with only a
+    // default variant is the one variant to record against.
+    const variant = product.variants?.[0];
+    if (!variant) return;
+
+    setPickedVariant({
+      variantId: variant.id,
+      sku: variant.sku ?? "",
+      productTitle: product.title ?? variant.product?.title ?? "",
+      variantTitle:
+        variant.title && variant.title !== "Default Title" ? variant.title : null,
+    });
   }, []);
 
   useEffect(() => {
@@ -460,7 +480,11 @@ export default function Inventory() {
           <s-stack direction="block" gap="base">
             {pickedVariant ? (
               <s-stack direction="block" gap="small">
-                <s-text>{pickedVariant.productTitle}</s-text>
+                <s-text>
+                  {pickedVariant.variantTitle
+                    ? `${pickedVariant.productTitle}, ${pickedVariant.variantTitle}`
+                    : pickedVariant.productTitle}
+                </s-text>
                 <s-paragraph color="subdued">
                   {pickedVariant.sku ? `SKU: ${pickedVariant.sku}` : "No SKU"}
                 </s-paragraph>

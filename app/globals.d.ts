@@ -2,8 +2,20 @@ declare module "*.css";
 
 interface ShopifyResourcePickerVariant {
   id: string;
-  sku: string;
-  product: { id: string; title: string };
+  title?: string;
+  sku?: string;
+  product?: { id: string; title: string };
+}
+
+interface ShopifyResourcePickerProduct {
+  id: string;
+  title: string;
+  /**
+   * With `filter: { variants: true }` the picker returns the variants the
+   * merchant expanded and selected; selecting the product row itself returns
+   * all of them.
+   */
+  variants?: ShopifyResourcePickerVariant[];
 }
 
 interface ShopifyToast {
@@ -15,8 +27,12 @@ interface ShopifyGlobal {
   toast: ShopifyToast;
   resourcePicker(options: {
     type: "variant" | "product" | "collection";
+    action?: "select" | "add";
     multiple?: boolean;
-  }): Promise<ShopifyResourcePickerVariant[] | undefined>;
+    filter?: { variants?: boolean; draft?: boolean; archived?: boolean };
+  }): Promise<
+    Array<ShopifyResourcePickerProduct | ShopifyResourcePickerVariant> | undefined
+  >;
 }
 
 declare const shopify: ShopifyGlobal;
