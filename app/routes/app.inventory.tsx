@@ -1,5 +1,10 @@
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "react-router";
-import { useLoaderData, useFetcher } from "react-router";
+import {
+  isRouteErrorResponse,
+  useFetcher,
+  useLoaderData,
+  useRouteError,
+} from "react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
@@ -147,16 +152,34 @@ async function actionSetReorderPoint(shop: string, fd: FormData) {
   return { success: true, error: null };
 }
 
-export const action = async ({ request }: ActionFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
-  const shop = session.shop;
-  const fd = await request.formData();
-  const intent = String(fd.get("intent") ?? "adjust");
+const UNEXPECTED_ERROR =
+  "Something went wrong saving that change, so nothing was recorded. Try again — if it keeps happening the details are in the server logs.";
 
-  if (intent === "set-reorder-point") {
-    return actionSetReorderPoint(shop, fd);
+export const action = async ({ request }: ActionFunctionArgs) => {
+  let shop = "unknown shop";
+
+  try {
+    const { session } = await authenticate.admin(request);
+    shop = session.shop;
+
+    const fd = await request.formData();
+    const intent = String(fd.get("intent") ?? "adjust");
+
+    if (intent === "set-reorder-point") {
+      return await actionSetReorderPoint(shop, fd);
+    }
+    return await actionAdjustStock(shop, fd);
+  } catch (error) {
+    // Shopify throws Responses to drive its auth and billing redirects, and
+    // App Bridge retries some of them — those have to keep bubbling.
+    if (error instanceof Response) throw error;
+
+    // Everything else (a dropped database connection, a bad session token, a
+    // Prisma failure) becomes a banner on the page instead of taking the whole
+    // route down with React Router's "Application Error" screen.
+    console.error(`[StockLog] Inventory action failed for ${shop}`, error);
+    return { error: UNEXPECTED_ERROR, success: false };
   }
-  return actionAdjustStock(shop, fd);
 };
 
 function ReorderCell({ row }: { row: StockRow }) {
@@ -341,7 +364,7 @@ export default function Inventory() {
 
       <s-section heading="Record stock adjustment">
         {fetcher.data?.error && (
-          <s-banner tone="critical" heading="Validation error">
+          <s-banner tone="critical" heading="Couldn't save">
             <s-paragraph>{fetcher.data.error}</s-paragraph>
           </s-banner>
         )}
@@ -386,6 +409,38 @@ export default function Inventory() {
             </s-button>
           </s-stack>
         </fetcher.Form>
+      </s-section>
+    </s-page>
+  );
+}
+
+/**
+ * Anything the action can't catch — a loader failure, an unreachable app
+ * instance, a response the client can't parse — lands here. Without it
+ * React Router falls back to its bare "Application Error" page, which tells a
+ * merchant nothing and hides the whole Inventory screen.
+ */
+export function ErrorBoundary() {
+  const error = useRouteError();
+
+  // Shopify's thrown Responses carry the App Bridge redirect markup, so they
+  // still have to render through its own boundary.
+  if (isRouteErrorResponse(error)) {
+    return boundary.error(error);
+  }
+
+  const message =
+    error instanceof Error && error.message ? error.message : String(error);
+
+  return (
+    <s-page heading="Inventory">
+      <s-section heading="Something went wrong">
+        <s-banner tone="critical" heading="Inventory is temporarily unavailable">
+          <s-paragraph>{message}</s-paragraph>
+          <s-paragraph>
+            No stock was changed. Reload the page to try again.
+          </s-paragraph>
+        </s-banner>
       </s-section>
     </s-page>
   );
