@@ -304,6 +304,7 @@ export default function Inventory() {
   const fetcher = useFetcher<typeof action>();
   const formRef = useRef<HTMLFormElement>(null);
   const [pickedVariant, setPickedVariant] = useState<PickedVariant | null>(null);
+  const [pickerNotice, setPickerNotice] = useState<string | null>(null);
 
   const openPicker = useCallback(async () => {
     // The product picker shows each product's image and title and lets a
@@ -320,11 +321,20 @@ export default function Inventory() {
 
     const product = selection[0] as ShopifyResourcePickerProduct;
     // Expanding and choosing a variant returns just that variant; selecting
-    // the product row returns all of them, which for a product with only a
-    // default variant is the one variant to record against.
-    const variant = product.variants?.[0];
+    // the product row returns all of them. One variant back is unambiguous —
+    // either the chosen one, or the sole default variant of a product that has
+    // no options. Several means the merchant picked the product without saying
+    // which variant, so ask rather than guessing at the first one.
+    const variants = product.variants ?? [];
+    if (variants.length > 1) {
+      setPickedVariant(null);
+      setPickerNotice(`Pick one variant of ${product.title}`);
+      return;
+    }
+    const variant = variants[0];
     if (!variant) return;
 
+    setPickerNotice(null);
     setPickedVariant({
       variantId: variant.id,
       sku: variant.sku ?? "",
@@ -338,6 +348,7 @@ export default function Inventory() {
     if (fetcher.data?.success) {
       formRef.current?.reset();
       setPickedVariant(null);
+      setPickerNotice(null);
       shopify.toast.show(fetcher.data.message ?? "Adjustment saved");
     }
   }, [fetcher.data]);
@@ -492,6 +503,9 @@ export default function Inventory() {
               </s-stack>
             ) : (
               <s-button onClick={openPicker}>Select product / variant</s-button>
+            )}
+            {pickerNotice && (
+              <s-paragraph tone="critical">{pickerNotice}</s-paragraph>
             )}
             <s-text-field
               label="Quantity change"
