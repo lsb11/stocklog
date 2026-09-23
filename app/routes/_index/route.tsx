@@ -105,7 +105,7 @@ export default function App() {
             </div>
           ))}
           <div className={styles.ledgerClose}>
-            <span>Audit trail · retained until you uninstall</span>
+            <span>Audit trail · kept while the app is installed</span>
             <span className={styles.num}>✓ balanced</span>
           </div>
         </section>

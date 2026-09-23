@@ -57,7 +57,7 @@ export default function Privacy() {
       </header>
       <main style={s.main}>
         <h1 style={s.h1}>Privacy policy</h1>
-        <p style={s.updated}>Last updated: 17 July 2026</p>
+        <p style={s.updated}>Last updated: 23 September 2026</p>
 
         <p style={s.p}>
           StockLog is an inventory ledger for Shopify stores. This page explains
@@ -102,10 +102,12 @@ export default function Privacy() {
         <h2 style={s.h2}>Deletion</h2>
         <ul style={s.ul}>
           <li>
-            <strong>Uninstalling the app</strong> revokes its access
-            immediately, and Shopify&rsquo;s shop-redact process removes the
-            shop&rsquo;s stored data within the timeframe Shopify mandates
-            (currently 48 hours after the redaction request is issued).
+            <strong>Your ledger is kept while the app is installed</strong>,
+            and deleted when Shopify confirms the uninstall, about 48 hours
+            later. Uninstalling revokes the app&rsquo;s access immediately;
+            the stock movements and settings are removed when Shopify sends
+            its shop redaction request. If you reinstall before then, your
+            history is still there.
           </li>
           <li>
             StockLog implements all of Shopify&rsquo;s mandatory privacy
