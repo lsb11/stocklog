@@ -1,8 +1,10 @@
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "react-router";
 import {
+  Form,
   isRouteErrorResponse,
   useFetcher,
   useLoaderData,
+  useNavigate,
   useRouteError,
 } from "react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -24,6 +26,8 @@ import {
   reasonTag,
   type ReasonTag,
 } from "../catalog.server";
+import { decodeCursor, fetchMovementPage } from "../history.server";
+import { HISTORY_PAGE_SIZE, variantIdFromParam, variantParam } from "../history";
 
 type MovementRow = {
   id: string;
@@ -47,29 +51,24 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
   const shop = session.shop;
 
-  const [ledger, settings, recentRaw, unsynced] = await Promise.all([
+  // Movement history is paged in the database: ?variant=<numeric id> filters
+  // to one variant, ?after= / ?before= carry the keyset cursor for Next and
+  // Previous. See app/history.server.ts.
+  const params = new URL(request.url).searchParams;
+  const filterVariantId = variantIdFromParam(params.get("variant"));
+  const after = decodeCursor(params.get("after"));
+  const before = after ? null : decodeCursor(params.get("before"));
+
+  const [ledger, settings, historyPage, unsynced] = await Promise.all([
     buildLedger(shop),
     prisma.variantSettings.findMany({
       where: { shop },
       select: { variantId: true, reorderPoint: true },
     }),
-    prisma.stockMovement.findMany({
-      where: { shop },
-      orderBy: { createdAt: "desc" },
-      take: 25,
-      select: {
-        id: true,
-        variantId: true,
-        productTitle: true,
-        sku: true,
-        quantityDelta: true,
-        reason: true,
-        orderId: true,
-        createdAt: true,
-      },
-    }),
+    fetchMovementPage(shop, { variantId: filterVariantId, after, before }),
     findUnsyncedVariantIds(shop),
   ]);
+  const recentRaw = historyPage.rows;
 
   // Variant titles and order names live in Shopify, not in the ledger, so
   // they are fetched for the rows this page renders and cached per shop.
@@ -120,8 +119,39 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     }))
     .sort((a, b) => a.title.localeCompare(b.title));
 
-  return { stock, recent, unsyncedCount: unsynced.length };
+  const filterRow = filterVariantId
+    ? stock.find((s) => s.variantId === filterVariantId)
+    : undefined;
+
+  return {
+    stock,
+    unsyncedCount: unsynced.length,
+    history: {
+      rows: recent,
+      nextCursor: historyPage.nextCursor,
+      prevCursor: historyPage.prevCursor,
+      isFirstPage: !after && !before,
+      variant: filterVariantId ? variantParam(filterVariantId) : null,
+      variantLabel: filterVariantId
+        ? filterRow
+          ? filterRow.sku
+            ? `${filterRow.title} (${filterRow.sku})`
+            : filterRow.title
+          : "a variant with no recorded movements"
+        : null,
+    },
+  };
 };
+
+/** Query string for a history view; empty values are left out. */
+function historyQuery(values: Record<string, string | null>): string {
+  const qs = new URLSearchParams();
+  for (const [key, value] of Object.entries(values)) {
+    if (value) qs.set(key, value);
+  }
+  const s = qs.toString();
+  return s ? `?${s}` : ".";
+}
 
 async function actionAdjustStock(
   shop: string,
@@ -300,7 +330,13 @@ type PickedVariant = {
 };
 
 export default function Inventory() {
-  const { stock, recent, unsyncedCount } = useLoaderData<typeof loader>();
+  const { stock, history, unsyncedCount } = useLoaderData<typeof loader>();
+  const recent = history.rows;
+  const navigate = useNavigate();
+  // Paging and filtering keep the merchant where they are on the page rather
+  // than jumping back to the stock table at the top.
+  const goToHistory = (values: Record<string, string | null>) =>
+    navigate(historyQuery(values), { preventScrollReset: true });
   const fetcher = useFetcher<typeof action>();
   const formRef = useRef<HTMLFormElement>(null);
   const [pickedVariant, setPickedVariant] = useState<PickedVariant | null>(null);
@@ -430,50 +466,115 @@ export default function Inventory() {
         )}
       </s-section>
 
-      <s-section heading="Movement history (last 25)">
-        {recent.length === 0 ? (
+      <s-section heading="Movement history">
+        <s-stack direction="block" gap="base">
+          {stock.length > 0 && (
+            <Form method="get" preventScrollReset key={history.variant ?? "all"}>
+              <s-stack direction="inline" gap="small">
+                <s-select label="Variant" name="variant" value={history.variant ?? ""}>
+                  <s-option value="">All variants</s-option>
+                  {stock.map((row) => (
+                    <s-option key={row.variantId} value={variantParam(row.variantId)}>
+                      {row.sku ? `${row.title} (${row.sku})` : row.title}
+                    </s-option>
+                  ))}
+                </s-select>
+                <s-button type="submit">Show history</s-button>
+                {history.variant && (
+                  <s-button variant="tertiary" onClick={() => goToHistory({})}>
+                    Show all variants
+                  </s-button>
+                )}
+              </s-stack>
+            </Form>
+          )}
+
           <s-paragraph color="subdued">
-            No movements yet. Orders, adjustments, imports and syncs appear
-            here with the time and the reason.
+            {history.variantLabel
+              ? `Every movement for ${history.variantLabel}, newest first, ${HISTORY_PAGE_SIZE} per page.`
+              : `Every movement, newest first, ${HISTORY_PAGE_SIZE} per page.`}
           </s-paragraph>
-        ) : (
-          <s-table>
-            <s-table-header-row>
-              <s-table-header>When</s-table-header>
-              <s-table-header>Product</s-table-header>
-              <s-table-header>SKU</s-table-header>
-              <s-table-header format="numeric">Change</s-table-header>
-              <s-table-header>Reason</s-table-header>
-            </s-table-header-row>
-            <s-table-body>
-              {recent.map((m) => (
-                <s-table-row key={m.id}>
-                  <s-table-cell>
-                    <s-paragraph color="subdued">{m.when}</s-paragraph>
-                  </s-table-cell>
-                  <s-table-cell>{m.title}</s-table-cell>
-                  <s-table-cell>
-                    <SkuCell sku={m.sku} />
-                  </s-table-cell>
-                  <s-table-cell>
-                    <s-badge tone={m.quantityDelta >= 0 ? "success" : "warning"}>
-                      {m.quantityDelta > 0 ? `+${m.quantityDelta}` : m.quantityDelta}
-                    </s-badge>
-                  </s-table-cell>
-                  <s-table-cell>
-                    {m.reason.href ? (
-                      <s-link href={m.reason.href}>
+
+          {recent.length === 0 ? (
+            <s-paragraph color="subdued">
+              {!history.isFirstPage
+                ? "Nothing on this page. Use Newest to go back to the latest movements."
+                : history.variant
+                  ? "No movements recorded for this variant yet."
+                  : "No movements yet. Orders, adjustments, imports and syncs appear here with the time and the reason."}
+            </s-paragraph>
+          ) : (
+            <s-table>
+              <s-table-header-row>
+                <s-table-header>When</s-table-header>
+                <s-table-header>Product</s-table-header>
+                <s-table-header>SKU</s-table-header>
+                <s-table-header format="numeric">Change</s-table-header>
+                <s-table-header>Reason</s-table-header>
+              </s-table-header-row>
+              <s-table-body>
+                {recent.map((m) => (
+                  <s-table-row key={m.id}>
+                    <s-table-cell>
+                      <s-paragraph color="subdued">{m.when}</s-paragraph>
+                    </s-table-cell>
+                    <s-table-cell>{m.title}</s-table-cell>
+                    <s-table-cell>
+                      <SkuCell sku={m.sku} />
+                    </s-table-cell>
+                    <s-table-cell>
+                      <s-badge tone={m.quantityDelta >= 0 ? "success" : "warning"}>
+                        {m.quantityDelta > 0 ? `+${m.quantityDelta}` : m.quantityDelta}
+                      </s-badge>
+                    </s-table-cell>
+                    <s-table-cell>
+                      {m.reason.href ? (
+                        <s-link href={m.reason.href}>
+                          <s-badge tone={m.reason.tone}>{m.reason.label}</s-badge>
+                        </s-link>
+                      ) : (
                         <s-badge tone={m.reason.tone}>{m.reason.label}</s-badge>
-                      </s-link>
-                    ) : (
-                      <s-badge tone={m.reason.tone}>{m.reason.label}</s-badge>
-                    )}
-                  </s-table-cell>
-                </s-table-row>
-              ))}
-            </s-table-body>
-          </s-table>
-        )}
+                      )}
+                    </s-table-cell>
+                  </s-table-row>
+                ))}
+              </s-table-body>
+            </s-table>
+          )}
+
+          {(history.prevCursor || history.nextCursor || !history.isFirstPage) && (
+            <s-stack direction="inline" gap="small">
+              {!history.isFirstPage && (
+                <s-button
+                  variant="tertiary"
+                  onClick={() => goToHistory({ variant: history.variant })}
+                >
+                  Newest
+                </s-button>
+              )}
+              <s-button
+                accessibilityLabel="Previous page of movements"
+                {...{ disabled: history.prevCursor ? undefined : true }}
+                onClick={() =>
+                  history.prevCursor &&
+                  goToHistory({ variant: history.variant, before: history.prevCursor })
+                }
+              >
+                Previous
+              </s-button>
+              <s-button
+                accessibilityLabel="Next page of movements"
+                {...{ disabled: history.nextCursor ? undefined : true }}
+                onClick={() =>
+                  history.nextCursor &&
+                  goToHistory({ variant: history.variant, after: history.nextCursor })
+                }
+              >
+                Next
+              </s-button>
+            </s-stack>
+          )}
+        </s-stack>
       </s-section>
 
       <s-section heading="Record stock adjustment">

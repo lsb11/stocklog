@@ -29,8 +29,11 @@ model StockMovement {
   sourceOrderId String?
   createdAt     DateTime @default(now())
 
-  @@index([shop, variantId])
-  @@index([shop, createdAt])
+  // Movement history is keyset-paged newest first on (createdAt, id); see
+  // app/history.server.ts. The leading columns still serve every query the
+  // old (shop, variantId) and (shop, createdAt) indexes did.
+  @@index([shop, variantId, createdAt, id])
+  @@index([shop, createdAt, id])
   @@index([shop, sourceOrderId])
   // A partial unique index on (shop, variantId) WHERE reason = 'opening_balance'
   // is created in migration 20260922120000_opening_balance_unique. Prisma schema
