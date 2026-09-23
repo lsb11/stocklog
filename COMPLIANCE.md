@@ -1,6 +1,6 @@
 # StockLog — Compliance Notes
 
-_For Shopify App Store submission. Last updated: 2026-06-22._
+_For Shopify App Store submission. Last updated: 2026-09-23._
 
 ---
 
@@ -26,13 +26,19 @@ StockLog requests the `read_orders` scope to display order history and revenue s
 | Table | Contents | Retained until |
 |-------|----------|----------------|
 | `Session` | Shopify OAuth tokens | Deleted on `app/uninstalled` webhook |
-| `StockMovement` | Merchant-entered inventory adjustments (no PII) | Deleted on `shop/redact` webhook (90-day grace period per Shopify policy) |
+| `StockMovement` | Stock ledger: orders, cancellations, refund restocks, syncs, imports and manual adjustments (no PII) | Kept while the app is installed; deleted on `shop/redact` |
+| `VariantSettings` | Per-variant reorder points (no PII) | Kept while the app is installed; deleted on `shop/redact` |
+
+Shopify sends `shop/redact` 48 hours after the merchant uninstalls the app, and
+requires the deletion to be completed within 30 days of receipt. StockLog deletes
+the shop's rows as soon as the webhook arrives, so shop data is gone about 48 hours
+after uninstall. If the delete fails the handler returns a 500 so Shopify retries.
 
 GDPR-mandatory webhooks implemented:
 
 - `customers/data_request` — `/webhooks/customers.data_request` (no customer data stored; responds with empty data set)
 - `customers/redact` — `/webhooks/customers.redact` (no customer data to redact; acknowledges immediately)
-- `shop/redact` — `/webhooks/shop.redact` (deletes all `StockMovement` and `Session` rows for the shop)
+- `shop/redact` — `/webhooks/shop.redact` (deletes all `StockMovement`, `VariantSettings` and `Session` rows for the shop)
 
 ---
 

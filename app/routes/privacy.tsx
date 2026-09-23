@@ -105,9 +105,9 @@ export default function Privacy() {
             <strong>Your ledger is kept while the app is installed</strong>,
             and deleted when Shopify confirms the uninstall, about 48 hours
             later. Uninstalling revokes the app&rsquo;s access immediately;
-            the stock movements and settings are removed when Shopify sends
-            its shop redaction request. If you reinstall before then, your
-            history is still there.
+            Shopify sends StockLog a shop redaction request 48 hours after
+            you uninstall, and your stock movements and settings are deleted
+            as soon as it arrives.
           </li>
           <li>
             StockLog implements all of Shopify&rsquo;s mandatory privacy
