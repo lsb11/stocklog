@@ -309,8 +309,10 @@ export default function ImportSync() {
 
       <s-section heading="Import a Stocky export (optional)">
         <s-paragraph>
-          If you exported your stock levels from Stocky before it closed, paste
-          the rows here as SKU,quantity. Extra columns are ignored and the last
+          Stocky shut down on 31 August 2026, but Shopify is keeping its
+          read-only export open for at least 90 days after that date. Export
+          your stock levels from Stocky as a CSV now, then paste the rows here
+          as SKU,quantity. Extra columns are ignored and the last
           column is read as the quantity. Each matching SKU is set to the
           imported number, and the change is recorded in your history. Sync
           your stock first so your SKUs are in the ledger.

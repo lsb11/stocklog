@@ -117,7 +117,7 @@ export default function App() {
             tag: "IMPORT",
             tone: "in",
             title: "Bring your Stocky numbers with you",
-            body: "Sync your current Shopify stock in one click. If you saved a Stocky CSV export, paste it in and each SKU starts from its Stocky quantity, with the import recorded in the history.",
+            body: "Sync your current Shopify stock in one click. Stocky's read-only export is still open, so export your stock levels as a CSV, paste it in, and each SKU starts from its Stocky quantity, with the import recorded in the history.",
           },
           {
             tag: "ORDERS",
