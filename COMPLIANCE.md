@@ -6,10 +6,38 @@ _For Shopify App Store submission. Last updated: 2026-09-23._
 
 ## Protected Customer Data (PCD) Posture
 
-StockLog requests the `read_orders` scope to display order history and revenue summaries inside the embedded app. **No protected customer data is persisted, exported, or transmitted to any third party.**
+StockLog requests `read_orders` so it can receive the order and refund webhooks that drive the stock ledger, and so it can show order names (e.g. "#1042") next to ledger rows. **No protected customer data is read into the app's own logic, persisted, exported, or sent to any third party.** The embedded UI shows no orders list, no revenue figures and no customer names (the orders/revenue home page and its "Customer" column were removed in `7fdaf27`).
 
-| Field | Usage | Stored? |
-|-------|-------|---------|
+- **Scopes requested**: `read_orders, read_products` (see `shopify.app.toml`)
+- **Scopes deliberately NOT requested**: `write_orders`, `write_draft_orders`, `read_customers`: none are needed.
+- **Access tokens**: offline tokens only, so the `Session` row's `firstName`, `lastName` and `email` columns stay empty.
+
+### Order and refund webhooks
+
+The payloads include the full order, buyer details among them, but each handler reads only the fields below and ignores the rest.
+
+| Webhook | Fields read | What is stored |
+|---------|-------------|----------------|
+| `orders/create` | `id`; per line item: `title`, `quantity`, `sku`, `variant_id`, `product_id` | One `StockMovement` per line with a variant: negative quantity, product title, SKU, variant/product GIDs, order GID |
+| `orders/cancelled` | `id` only | Reversal rows copied from the ledger's own rows for that order; nothing new from the payload |
+| `refunds/create` | `id`, `order_id`; per refund line: `quantity`, `restock_type`, and `line_item.title`, `sku`, `variant_id`, `product_id` | One `StockMovement` per restocked line: refund GID, parent order GID, positive quantity (`no_restock` lines are skipped) |
+
+### Admin API reads
+
+| Query | Fields | Stored? |
+|-------|--------|---------|
+| Order names (history view) | `Order.id`, `Order.name` | No: held in an in-memory cache for display |
+| Variant titles (history, inventory) | `ProductVariant.title`, `product.title` | No: in-memory cache |
+| Variant baselines (import, first sighting of a variant) | `ProductVariant.sku`, `inventoryQuantity`, `product.title` | Yes, as an opening-balance `StockMovement` |
+| Shop timezone, plan | `shop.ianaTimezone`, `shop.plan.partnerDevelopment` | No: in-memory cache |
+
+No customer, email, address, phone or payment field is queried.
+
+### Error monitoring
+
+Sentry is off unless `SENTRY_DSN` is set. When it is on, `sentry-scrub.js` drops every request body (so webhook payloads never reach Sentry), cookies, auth and HMAC headers, and all query parameters outside a short allowlist.
+
+-------|-------|---------|
 | Order name / number | Dashboard table | No — rendered in browser only |
 | `customer.displayName` (Name field) | Dashboard "Customer" column | No — rendered in browser only |
 | Email, address, phone | Not requested | No |
