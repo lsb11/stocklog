@@ -36,3 +36,12 @@ interface ShopifyGlobal {
 }
 
 declare const shopify: ShopifyGlobal;
+
+interface Window {
+  /**
+   * Sentry config handed to the browser by the inline script in root.tsx, from
+   * the server's SENTRY_DSN. Undefined when Sentry is switched off.
+   */
+  __STOCKLOG_SENTRY_DSN__?: string;
+  __STOCKLOG_ENV__?: string;
+}

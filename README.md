@@ -34,6 +34,17 @@ orders keep the ledger live from then on.
   service must be a paid plan (free tier spin-down = 30–60 s cold starts).
 - `BILLING_TEST=true` while in review; remove in production to charge for
   real. (Also defaults to test outside `NODE_ENV=production`.)
+- `SENTRY_DSN` — optional. Unset (the local default) Sentry never initialises
+  and the app behaves exactly as before. Set it on Render to turn on error
+  reporting. Errors only: `tracesSampleRate` is 0, so no performance data is
+  sent. Every event is tagged with the `shop` it came from; request bodies,
+  cookies, auth headers and query-string tokens (`id_token`, `hmac`, `code`)
+  are stripped in `sentry-scrub.js` before anything leaves the process, so no
+  customer PII, order contents or access tokens reach Sentry.
+
+  The server SDK is loaded by `NODE_OPTIONS='--import ./instrument.server.mjs'`
+  in the `start` script — if you ever override Render's start command, keep
+  that flag or server-side reporting silently stops.
 
 ## Launch checklist
 

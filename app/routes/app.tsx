@@ -5,9 +5,13 @@ import { AppProvider } from "@shopify/shopify-app-react-router/react";
 
 import { authenticate, MONTHLY_PLAN } from "../shopify.server";
 import { resolveIsTestBilling } from "../billing.server";
+import { tagShop } from "../sentry.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, billing, session } = await authenticate.admin(request);
+
+  // Every error raised for the rest of this request is attributed to this shop.
+  tagShop(session.shop);
 
   const isTest = await resolveIsTestBilling(session.shop, admin);
 

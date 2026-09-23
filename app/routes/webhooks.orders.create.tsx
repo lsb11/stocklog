@@ -1,5 +1,6 @@
 import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
+import { captureWebhookError } from "../sentry.server";
 import db from "../db.server";
 import { ensureOpeningBalances } from "../stock.server";
 
@@ -72,6 +73,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   } catch (err) {
     // Rethrow so the request 500s and Shopify retries; the idempotency guard
     // above makes a replay safe.
+    captureWebhookError(err, { topic, shop, ids: { orderId } });
     console.error(`[StockLog] ${topic} failed for shop ${shop}, order ${orderId}:`, err);
     throw err;
   }
