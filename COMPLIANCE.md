@@ -37,15 +37,30 @@ No customer, email, address, phone or payment field is queried.
 
 Sentry is off unless `SENTRY_DSN` is set. When it is on, `sentry-scrub.js` drops every request body (so webhook payloads never reach Sentry), cookies, auth and HMAC headers, and all query parameters outside a short allowlist.
 
--------|-------|---------|
-| Order name / number | Dashboard table | No — rendered in browser only |
-| `customer.displayName` (Name field) | Dashboard "Customer" column | No — rendered in browser only |
-| Email, address, phone | Not requested | No |
-| Payment details | Not requested | No |
+### Scopes and stored data
 
-- **PCD access granted**: "App functionality" — merchants need to see their own order list.
-- **Scopes requested**: `write_products, write_metaobjects, write_metaobject_definitions, read_orders`
-- **Scopes deliberately NOT requested**: `write_orders`, `write_draft_orders` — these trigger additional PCD review and are not needed by the app.
+| Scope | Why it is needed |
+|-------|------------------|
+| `read_orders` | Receive the `orders/create`, `orders/cancelled` and `refunds/create` webhooks, and look up order names for the history view |
+| `read_products` | Read variant titles, SKUs and `inventoryQuantity` for opening balances and the Import / Sync page |
+
+StockLog requests no write scopes. It never changes products, variants or inventory in Shopify.
+
+Each `StockMovement` row stores only these fields, plus its own `id` and `createdAt`:
+
+| Field | Contents |
+|-------|----------|
+| `shop` | The shop's myshopify domain |
+| `productId` | Product GID (empty for opening balances) |
+| `variantId` | Variant GID |
+| `sku` | Variant SKU |
+| `productTitle` | Product or line item title |
+| `quantityDelta` | Signed change in stock |
+| `reason` | Why the stock moved, for example `order`, `order_cancelled` or `refund_restock` |
+| `orderId` | Order or refund GID, where the movement came from one |
+| `sourceOrderId` | Parent order GID on refund and cancellation rows |
+
+No customer name, email, phone or address is read or stored.
 
 ---
 
