@@ -1,4 +1,4 @@
-# StockLog — Compliance Notes
+# StockLog: Compliance Notes
 
 _For Shopify App Store submission. Last updated: 2026-09-23._
 
@@ -6,7 +6,7 @@ _For Shopify App Store submission. Last updated: 2026-09-23._
 
 ## Protected Customer Data (PCD) Posture
 
-StockLog requests `read_orders` so it can receive the order and refund webhooks that drive the stock ledger, and so it can show order names (e.g. "#1042") next to ledger rows. **No protected customer data is read into the app's own logic, persisted, exported, or sent to any third party.** The embedded UI shows no orders list, no revenue figures and no customer names (the orders/revenue home page and its "Customer" column were removed in `7fdaf27`).
+StockLog requests `read_orders` so it can receive the order and refund webhooks that drive the stock ledger, and so it can show order names (e.g. "#1042") next to ledger rows. It stores order and refund IDs as ledger references (Level 1: customer data excluding name, address, phone and email). **No customer name, email, phone or address is read, persisted, exported, logged or sent to any third party.** The embedded UI shows no orders list, no revenue figures and no customer names (the orders/revenue home page and its "Customer" column were removed in `7fdaf27`).
 
 - **Scopes requested**: `read_orders, read_products` (see `shopify.app.toml`)
 - **Scopes deliberately NOT requested**: `write_orders`, `write_draft_orders`, `read_customers`: none are needed.
@@ -39,28 +39,7 @@ Sentry is off unless `SENTRY_DSN` is set. When it is on, `sentry-scrub.js` drops
 
 ### Scopes and stored data
 
-| Scope | Why it is needed |
-|-------|------------------|
-| `read_orders` | Receive the `orders/create`, `orders/cancelled` and `refunds/create` webhooks, and look up order names for the history view |
-| `read_products` | Read variant titles, SKUs and `inventoryQuantity` for opening balances and the Import / Sync page |
-
-StockLog requests no write scopes. It never changes products, variants or inventory in Shopify.
-
-Each `StockMovement` row stores only these fields, plus its own `id` and `createdAt`:
-
-| Field | Contents |
-|-------|----------|
-| `shop` | The shop's myshopify domain |
-| `productId` | Product GID (empty for opening balances) |
-| `variantId` | Variant GID |
-| `sku` | Variant SKU |
-| `productTitle` | Product or line item title |
-| `quantityDelta` | Signed change in stock |
-| `reason` | Why the stock moved, for example `order`, `order_cancelled` or `refund_restock` |
-| `orderId` | Order or refund GID, where the movement came from one |
-| `sourceOrderId` | Parent order GID on refund and cancellation rows |
-
-No customer name, email, phone or address is read or stored.
+From each order, StockLog stores only the product and variant IDs, SKU, product title, the quantity change, the reason for the change, and the Shopify order ID. Refund rows store the refund ID and the parent order ID; cancellation rows store the order ID. The order webhooks Shopify sends include customer details, but StockLog ignores them: it never stores, logs or uses any customer name, email address, phone number or shipping address. Order data is used only to record stock movements in the merchant's own ledger and to show order numbers alongside those movements.
 
 ---
 
@@ -79,19 +58,19 @@ after uninstall. If the delete fails the handler returns a 500 so Shopify retrie
 
 GDPR-mandatory webhooks implemented:
 
-- `customers/data_request` — `/webhooks/customers.data_request` (no customer data stored; responds with empty data set)
-- `customers/redact` — `/webhooks/customers.redact` (no customer data to redact; acknowledges immediately)
-- `shop/redact` — `/webhooks/shop.redact` (deletes all `StockMovement`, `VariantSettings` and `Session` rows for the shop)
+- `customers/data_request`: `/webhooks/customers/data_request` (no customer data stored, so there is nothing to return; acknowledges with a 200)
+- `customers/redact`: `/webhooks/customers/redact` (no customer data to redact; acknowledges immediately)
+- `shop/redact`: `/webhooks/shop/redact` (deletes all `StockMovement`, `VariantSettings` and `Session` rows for the shop)
 
 ---
 
 ## Security Incident Response
 
-1. **Identify** — Monitor Shopify Partner Dashboard alerts and application error logs.
-2. **Contain** — Immediately rotate API credentials in Partners Dashboard; revoke access tokens if needed.
-3. **Notify** — Contact affected merchants and file a report with Shopify Partner Support within 72 hours of confirmed breach.
-4. **Remediate** — Patch, redeploy, and rotate all secrets; invalidate existing sessions.
-5. **Review** — Document root cause, update controls, and record in incident log.
+1. **Identify**: Monitor Shopify Partner Dashboard alerts and application error logs.
+2. **Contain**: Immediately rotate API credentials in Partners Dashboard; revoke access tokens if needed.
+3. **Notify**: Contact affected merchants and file a report with Shopify Partner Support within 72 hours of confirmed breach.
+4. **Remediate**: Patch, redeploy, and rotate all secrets; invalidate existing sessions.
+5. **Review**: Document root cause, update controls, and record in incident log.
 
 Security contact: lsandelands@hotmail.com
 
@@ -113,5 +92,5 @@ Dev store orders (#1001–#1006 on `stocklog-dev.myshopify.com`) are synthetic t
 The developer has formally attested to Shopify that:
 
 - This app does **not** persist protected customer data.
-- The Name field is read solely to render the dashboard order table within the merchant's own admin session.
+- No customer name, email, phone or address field is read, used or displayed. The only order field the UI shows is the order name (e.g. "#1042") next to ledger rows in the merchant's own admin session.
 - No customer PII is written to any database, log, or third-party service.
