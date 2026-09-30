@@ -29,11 +29,17 @@ orders keep the ledger live from then on.
 
 - `SHOPIFY_API_KEY`, `SHOPIFY_API_SECRET`, `SHOPIFY_APP_URL`
 - `SCOPES=read_orders,read_products` (must match `shopify.app.toml`)
-- `DATABASE_URL` — Postgres. **Render note:** free Postgres is deleted 30
-  days after creation; production requires a paid instance, and the web
-  service must be a paid plan (free tier spin-down = 30–60 s cold starts).
-- `BILLING_TEST=true` while in review; remove in production to charge for
-  real. (Also defaults to test outside `NODE_ENV=production`.)
+- `DATABASE_URL`: Postgres connection string. The local `.env` points at a
+  Neon database; production uses whatever `DATABASE_URL` is set on Render.
+  If you ever move to Render Postgres, its free instances are deleted 30 days
+  after creation, so production would need a paid one. The Render web service
+  must be a paid plan (free tier spin-down = 30–60 s cold starts).
+- `BILLING_TEST`: **never set this in production.** Leave it unset
+  everywhere, including during App Store review. The code already bills
+  development stores (including Shopify's reviewers) as test charges and
+  charges every other store for real (`app/billing.server.ts`).
+  `BILLING_TEST=true` forces test charges for every store, so if it were left
+  set on Render, every merchant install would be free.
 - `SENTRY_DSN` — optional. Unset (the local default) Sentry never initialises
   and the app behaves exactly as before. Set it on Render to turn on error
   reporting. Errors only: `tracesSampleRate` is 0, so no performance data is
@@ -59,8 +65,8 @@ orders keep the ledger live from then on.
 5. Pay the one-time $19 App Store registration fee, submit listing
    (screenshots of dashboard, inventory, import pages; lead copy with the
    31 Aug Stocky deadline).
-6. On approval: remove `BILLING_TEST`, announce on stackarchitect.xyz
-   Stocky pages.
+6. Before submitting and after approval: confirm `BILLING_TEST` is not set
+   on Render. On approval, announce on stackarchitect.xyz Stocky pages.
 
 ## Stack
 
