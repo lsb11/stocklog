@@ -1,6 +1,6 @@
 # StockLog: Compliance Notes
 
-_For Shopify App Store submission. Last updated: 2026-09-23._
+_For Shopify App Store submission. Last updated: 2026-09-30._
 
 ---
 
@@ -80,8 +80,10 @@ Security contact: lsandelands@hotmail.com
 
 | Environment | Database | Notes |
 |-------------|----------|-------|
-| Local development | `prisma/dev.sqlite` | Git-ignored; never contains real merchant data |
-| Production | PostgreSQL via `DATABASE_URL` env var | Managed separately; no overlap with dev |
+| Local development | PostgreSQL via `DATABASE_URL` in the local `.env` | Currently a hosted Neon Postgres database |
+| Production | PostgreSQL via `DATABASE_URL` set on Render | Configured in the Render dashboard |
+
+Both environments use the same schema and pick their database solely from `DATABASE_URL`. Nothing in the code keeps development and production apart: they are separate only if the two `DATABASE_URL` values point at different databases. There is no SQLite or local database file.
 
 Dev store orders (#1001–#1006 on `stocklog-dev.myshopify.com`) are synthetic test records created via the Shopify REST API. They are not real merchant or customer records.
 
@@ -89,8 +91,8 @@ Dev store orders (#1001–#1006 on `stocklog-dev.myshopify.com`) are synthetic t
 
 ## Attestation
 
-The developer has formally attested to Shopify that:
+The developer attests to Shopify, as part of the App Store submission, that:
 
-- This app does **not** persist protected customer data.
+- This app persists protected customer data at Level 1 only: order and refund IDs, stored as references on stock ledger rows. It persists none of the Level 2 fields (customer name, address, phone or email).
 - No customer name, email, phone or address field is read, used or displayed. The only order field the UI shows is the order name (e.g. "#1042") next to ledger rows in the merchant's own admin session.
 - No customer PII is written to any database, log, or third-party service.
