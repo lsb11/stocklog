@@ -3,6 +3,11 @@
 A persistent stock ledger and live order dashboard, embedded in the Shopify
 admin. Built on the official Shopify React Router app template.
 
+**Product page:** [StockLog on Stack Architect](https://stackarchitect.xyz/stocklog/).
+Moving off Stocky? [Replacing Shopify Stocky: data, deadline, alternatives](https://stackarchitect.xyz/stocky-alternative/)
+and [exporting your Stocky data in the read-only window](https://stackarchitect.xyz/blog/shopify-stocky-data-export-before-shutdown/).
+More free Shopify guides: [stackarchitect.xyz](https://stackarchitect.xyz/).
+
 **Positioning:** the hosted step up from spreadsheet-based Stocky
 replacements — a real database, automatic order/cancel/refund handling,
 one-click Stocky import, and a full audit trail. $7.99/month, 7-day trial.
