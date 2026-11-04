@@ -1,0 +1,28 @@
+# Keeps the Render free instance from sleeping.
+#
+# Render's free web services spin down after about 15 minutes without a
+# request, and the next request waits for a cold start. A Shopify reviewer
+# (or a merchant) opening the app at that moment sees a slow or failed load,
+# which reads as a broken app. A request every 10 minutes keeps it warm.
+#
+# One always-on free instance uses about 744 hours a month, inside Render's
+# 750 free instance hours, as long as no other free service runs in the same
+# workspace. Moving to a paid instance makes this workflow unnecessary.
+# GitHub pauses scheduled workflows in a repo with no commits for 60 days:
+# if the app ever goes quiet, re-enable it from the Actions tab.
+name: keep-awake
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+permissions: {}
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Request the app
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 90 https://stocklog.onrender.com/)
+          echo "HTTP $code"
+          case "$code" in 2*|3*|4*) exit 0 ;; *) exit 1 ;; esac
